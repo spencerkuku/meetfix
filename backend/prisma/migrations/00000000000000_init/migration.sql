@@ -1,0 +1,2 @@
+-- Establishes migration history tracking for the MeetFix database.
+-- Domain tables are added by the tickets that own them (see docs/adr and CONTEXT.md).
