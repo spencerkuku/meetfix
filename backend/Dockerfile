@@ -17,6 +17,7 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
-RUN mkdir -p uploads/rooms uploads/repairs
+RUN mkdir -p uploads/rooms uploads/repairs && chown -R node:node /app
+USER node
 EXPOSE 3000
 ENTRYPOINT ["./docker-entrypoint.sh"]
