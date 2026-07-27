@@ -1,0 +1,3 @@
+# Daily backup at 03:00 container time. Edit the schedule here and restart
+# the `backup` service to change it — see README.md "Backups & restore".
+0 3 * * * sh /backup.sh >> /backups/backup.log 2>&1

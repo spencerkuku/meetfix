@@ -6,7 +6,7 @@ Room booking and facility repair tracking for a single school. See [`CONTEXT.md`
 
 - `backend/` — NestJS REST API, PostgreSQL via Prisma.
 - Front-end (repo root) — the existing React/Vite SPA.
-- Deployment — a single `docker-compose` stack: `api` (NestJS), `postgres`, and `caddy` (reverse proxy, automatic HTTPS).
+- Deployment — a single `docker-compose` stack: `api` (NestJS), `postgres`, `backup` (scheduled `pg_dump`), and `caddy` (reverse proxy, automatic HTTPS).
 
 ## Running the full stack (Docker)
 
@@ -40,8 +40,51 @@ Set in `.env` at the repo root (see `.env.example`):
 | `FRONTEND_URL` | Public URL of the front end; Google login redirects back here after authenticating. |
 | `JWT_SECRET` | Signs session tokens — generate with `openssl rand -hex 32`. |
 | `ENCRYPTION_KEY` | 32-byte hex key that encrypts stored Google refresh tokens at rest — generate with `openssl rand -hex 32`. |
+| `BACKUP_RETENTION_DAYS` | How many days of database backups the `backup` service keeps before deleting old ones. Optional, defaults to `14`. |
 
 Uploaded files (room and repair-ticket photos) live on a Docker volume (`uploads`) mounted into the API container at `/app/uploads`, served back out at `/uploads/*` via Caddy — see ADR-0004.
+
+### Backups & restore
+
+The `backup` service runs a `pg_dump` of the database every day at 03:00 (container time), gzip-compressed, into the `backups` named volume — see `backup/crontab` for the schedule and `backup/backup.sh` for the dump command. Backups older than `BACKUP_RETENTION_DAYS` (default 14) are deleted after each run.
+
+**Trigger a backup immediately** (e.g. before a risky change):
+```bash
+docker compose exec backup sh /backup.sh
+```
+
+**List backups:**
+```bash
+docker compose exec backup ls -la /backups
+```
+
+**Restore procedure.** Always restore into a *fresh* Postgres — never run a restore against the live database, since the dump recreates tables that already exist there.
+
+1. Copy the backup file out of the volume to the host:
+   ```bash
+   docker compose cp backup:/backups/meetfix-<timestamp>.sql.gz ./meetfix-restore.sql.gz
+   ```
+2. Stop the stack and discard the current database volume (only do this once you've confirmed the backup file is safely copied out, e.g. for a genuine disaster-recovery restore — for a routine drill, restore into a separate disposable Postgres container instead of touching the real `pgdata` volume). The volume name below is `<compose-project-name>_pgdata`; Compose derives the project name from the directory this repo lives in unless overridden, so adjust the prefix if yours differs (check with `docker volume ls`):
+   ```bash
+   docker compose down
+   docker volume rm meetfix_pgdata
+   ```
+3. Bring Postgres back up empty and wait for it to report healthy (don't start `api` yet — restoring first avoids it racing `prisma migrate deploy` against an empty schema):
+   ```bash
+   docker compose up -d postgres
+   docker compose exec postgres sh -c 'until pg_isready -U "$POSTGRES_USER"; do sleep 1; done'
+   ```
+4. Restore. `POSTGRES_USER`/`POSTGRES_DB` come from `.env` inside the container, not your host shell, so export them first (or substitute the values directly). The dump includes the full schema, data, and Prisma's own migration-history table, so this alone reconstructs everything:
+   ```bash
+   set -a; source .env; set +a
+   gunzip -c meetfix-restore.sql.gz | docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+   ```
+5. Start the rest of the stack. `api`'s `prisma migrate deploy` will see every migration already recorded as applied and do nothing further:
+   ```bash
+   docker compose up -d
+   ```
+
+This procedure has been manually verified: a backup taken from a stack with seeded data was restored into a fresh Postgres container and the row counts matched the source exactly.
 
 ### Stopping / resetting
 

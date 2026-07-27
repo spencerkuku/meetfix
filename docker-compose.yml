@@ -33,6 +33,24 @@ services:
       postgres:
         condition: service_healthy
 
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-meetfix}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-meetfix}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - backups:/backups
+      - ./backup/backup.sh:/backup.sh:ro
+      - ./backup/crontab:/etc/crontabs/root:ro
+    entrypoint: ["crond", "-f", "-l", "2"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -53,3 +71,4 @@ volumes:
   caddy_data:
   caddy_config:
   uploads:
+  backups:
