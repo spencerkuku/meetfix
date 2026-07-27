@@ -159,4 +159,113 @@ describe('Auth (e2e)', () => {
       encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
     );
   });
+
+  describe('Password accounts (ADR-0003)', () => {
+    afterEach(async () => {
+      await prisma.autoApprovedDomain.deleteMany({});
+    });
+
+    it('activates immediately when the email domain is on the Auto-Approved Domain list', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'vendor.example.com' },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'tech@vendor.example.com',
+          name: '外包廠商',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('ACTIVE');
+
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'tech@vendor.example.com', password: 'password123' })
+        .expect(201);
+      expect((login.body as { accessToken: string }).accessToken).toEqual(
+        expect.any(String),
+      );
+    });
+
+    it('lands PENDING when the email domain is not on the Auto-Approved Domain list', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'outsider@unknown.example.com',
+          name: '外部人士',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('PENDING');
+    });
+
+    it('rejects login for a PENDING account with a clear error, not a silent failure', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'pending@unknown.example.com',
+          name: '待審核使用者',
+          password: 'password123',
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'pending@unknown.example.com', password: 'password123' })
+        .expect(401);
+      expect((res.body as { message: string }).message).toMatch(/pending/i);
+    });
+
+    it('rejects login with a wrong password', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'vendor.example.com' },
+      });
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'tech2@vendor.example.com',
+          name: '外包廠商二',
+          password: 'password123',
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'tech2@vendor.example.com', password: 'wrong-password' })
+        .expect(401);
+    });
+
+    it('rejects registering a duplicate email', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'dupe@unknown.example.com',
+          name: '第一次',
+          password: 'password123',
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'dupe@unknown.example.com',
+          name: '第二次',
+          password: 'password123',
+        })
+        .expect(409);
+    });
+
+    it('rejects registration with a too-short password', () => {
+      return request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: 'shortpw@unknown.example.com',
+          name: '短密碼',
+          password: '123',
+        })
+        .expect(400);
+    });
+  });
 });

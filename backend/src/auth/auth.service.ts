@@ -1,17 +1,29 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { AccountProvider, Prisma, Role, User } from '@prisma/client';
+import {
+  AccountProvider,
+  AccountStatus,
+  Prisma,
+  Role,
+  User,
+} from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { GoogleProfile } from './google-profile.interface';
 import { TokenEncryptionService } from './token-encryption.service';
+import { RegisterWithPasswordDto } from './register-with-password.dto';
+import { LoginWithPasswordDto } from './login-with-password.dto';
 
 const LOGIN_CODE_TTL_MS = 60_000;
+const PASSWORD_HASH_ROUNDS = 10;
+const MIN_PASSWORD_LENGTH = 8;
 
 @Injectable()
 export class AuthService {
@@ -114,15 +126,95 @@ export class AuthService {
       throw new UnauthorizedException('User no longer exists');
     }
 
-    const accessToken = await this.jwt.signAsync({
-      sub: user.id,
-      role: user.role,
-      email: user.email,
+    return { accessToken: await this.signToken(user) };
+  }
+
+  // Password registration (ADR-0003): a second Account path alongside
+  // Google OAuth, gated by the Admin-maintained Auto-Approved Domain list.
+  async registerWithPassword(
+    dto: RegisterWithPasswordDto,
+  ): Promise<{ status: AccountStatus }> {
+    if (!dto.email?.trim() || !dto.name?.trim() || !dto.password) {
+      throw new BadRequestException('email, name and password are required');
+    }
+    if (dto.password.length < MIN_PASSWORD_LENGTH) {
+      throw new BadRequestException(
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      );
+    }
+
+    const domain = dto.email.split('@')[1]?.toLowerCase();
+    const autoApproved =
+      !!domain &&
+      (await this.prisma.autoApprovedDomain.findUnique({
+        where: { domain },
+      }));
+    const status = autoApproved ? AccountStatus.ACTIVE : AccountStatus.PENDING;
+    const passwordHash = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
+
+    try {
+      await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          name: dto.name,
+          role: Role.USER,
+          account: {
+            create: {
+              provider: AccountProvider.PASSWORD,
+              status,
+              passwordHash,
+            },
+          },
+        },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'An account already exists for this email address',
+        );
+      }
+      throw err;
+    }
+
+    return { status };
+  }
+
+  async loginWithPassword(
+    dto: LoginWithPasswordDto,
+  ): Promise<{ accessToken: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      include: { account: true },
     });
-    return { accessToken };
+    const account = user?.account;
+    const valid =
+      !!account?.passwordHash &&
+      account.provider === AccountProvider.PASSWORD &&
+      (await bcrypt.compare(dto.password, account.passwordHash));
+    if (!user || !account || !valid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    if (account.status !== AccountStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        'This account is pending Admin approval',
+      );
+    }
+
+    return { accessToken: await this.signToken(user) };
   }
 
   async findUserById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  private async signToken(user: User): Promise<string> {
+    return this.jwt.signAsync({
+      sub: user.id,
+      role: user.role,
+      email: user.email,
+    });
   }
 }

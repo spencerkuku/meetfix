@@ -16,6 +16,8 @@ import { GoogleProfile } from './google-profile.interface';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import type { ExchangeLoginCodeDto } from './exchange-login-code.dto';
+import type { RegisterWithPasswordDto } from './register-with-password.dto';
+import type { LoginWithPasswordDto } from './login-with-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -50,6 +52,16 @@ export class AuthController {
   @Post('exchange')
   exchange(@Body() body: ExchangeLoginCodeDto) {
     return this.authService.exchangeLoginCode(body.code);
+  }
+
+  @Post('register')
+  register(@Body() body: RegisterWithPasswordDto) {
+    return this.authService.registerWithPassword(body);
+  }
+
+  @Post('login')
+  login(@Body() body: LoginWithPasswordDto) {
+    return this.authService.loginWithPassword(body);
   }
 
   @Get('me')

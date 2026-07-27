@@ -1,9 +1,10 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { User, Room, Booking, RepairTicket, RepairCategory, UserRole } from './types';
+import { User, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { AuthCallback } from './pages/AuthCallback';
 import { Bookings } from './pages/Bookings';
 import { Repairs } from './pages/Repairs';
@@ -13,10 +14,11 @@ import { Admin } from './pages/Admin';
 import { RoomManagement } from './pages/RoomManagement';
 import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
-import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
+import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode, registerWithPassword as registerWithPasswordApi, loginWithPassword as loginWithPasswordApi } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
+import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -38,6 +40,8 @@ interface DataContextType {
   authLoading: boolean;
   loginWithGoogle: () => void;
   completeGoogleLogin: (code: string) => Promise<void>;
+  registerWithPassword: (email: string, name: string, password: string) => Promise<'ACTIVE' | 'PENDING'>;
+  loginWithPassword: (email: string, password: string) => Promise<void>;
   logout: () => void;
   addBooking: (input: CreateBookingInput) => Promise<void>;
   cancelBooking: (id: string) => Promise<void>;
@@ -45,8 +49,17 @@ interface DataContextType {
   rejectBooking: (id: string) => Promise<void>;
   addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
   updateRepair: (id: string, updates: UpdateRepairTicketInput) => Promise<void>;
-  updateMockRole: (userId: string, role: UserRole) => void;
   updateUser: (userId: string, data: Partial<User>) => void;
+  // Admin-only: real User/Account administration (ticket #4). `users` and
+  // `pendingAccounts`/`autoApprovedDomains` are only fetched for an ADMIN
+  // currentUser — see the effect below.
+  users: User[];
+  updateUserRole: (userId: string, role: UserRole) => Promise<void>;
+  pendingAccounts: PendingAccount[];
+  approveAccount: (accountId: string, role: UserRole) => Promise<void>;
+  autoApprovedDomains: AutoApprovedDomain[];
+  addAutoApprovedDomain: (domain: string) => Promise<void>;
+  removeAutoApprovedDomain: (id: string) => Promise<void>;
   addRepairCategory: (name: string) => Promise<void>;
   removeRepairCategory: (id: string) => Promise<void>;
   addRoom: (input: RoomFormInput, photo: File) => Promise<void>;
@@ -70,6 +83,9 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [repairs, setRepairs] = useState<RepairTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [repairCategories, setRepairCategories] = useState<RepairCategory[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
+  const [autoApprovedDomains, setAutoApprovedDomains] = useState<AutoApprovedDomain[]>([]);
 
   useEffect(() => {
     const token = getToken();
@@ -98,6 +114,18 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     fetchRepairCategories().then(setRepairCategories).catch(() => setRepairCategories([]));
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+      setUsers([]);
+      setPendingAccounts([]);
+      setAutoApprovedDomains([]);
+      return;
+    }
+    fetchUsers().then(setUsers).catch(() => setUsers([]));
+    fetchPendingAccounts().then(setPendingAccounts).catch(() => setPendingAccounts([]));
+    fetchAutoApprovedDomains().then(setAutoApprovedDomains).catch(() => setAutoApprovedDomains([]));
+  }, [currentUser]);
+
   const loginWithGoogle = () => {
     window.location.href = googleLoginUrl();
   };
@@ -105,6 +133,17 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const completeGoogleLogin = async (code: string) => {
     const token = await exchangeLoginCode(code);
     if (!token) return;
+    setToken(token);
+    const user = await fetchCurrentUser(token);
+    setCurrentUser(user);
+  };
+
+  const registerWithPassword = (email: string, name: string, password: string) => {
+    return registerWithPasswordApi(email, name, password);
+  };
+
+  const loginWithPassword = async (email: string, password: string) => {
+    const token = await loginWithPasswordApi(email, password);
     setToken(token);
     const user = await fetchCurrentUser(token);
     setCurrentUser(user);
@@ -145,8 +184,25 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
   };
 
-  const updateMockRole = (userId: string, role: UserRole) => {
-    setMockUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u));
+  const updateUserRole = async (userId: string, role: UserRole) => {
+    const user = await updateUserRoleApi(userId, role);
+    setUsers(prev => prev.map(u => u.id === userId ? user : u));
+  };
+
+  const approveAccount = async (accountId: string, role: UserRole) => {
+    await approveAccountApi(accountId, role);
+    setPendingAccounts(prev => prev.filter(a => a.id !== accountId));
+    setUsers(await fetchUsers());
+  };
+
+  const addAutoApprovedDomain = async (domain: string) => {
+    const created = await addAutoApprovedDomainApi(domain);
+    setAutoApprovedDomains(prev => [...prev, created]);
+  };
+
+  const removeAutoApprovedDomain = async (id: string) => {
+    await removeAutoApprovedDomainApi(id);
+    setAutoApprovedDomains(prev => prev.filter(d => d.id !== id));
   };
 
   const updateUser = (userId: string, data: Partial<User>) => {
@@ -184,9 +240,12 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return (
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
-      loginWithGoogle, completeGoogleLogin, logout, addBooking, cancelBooking, approveBooking, rejectBooking,
-      addRepair, updateRepair, updateMockRole, updateUser,
-      addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom
+      loginWithGoogle, completeGoogleLogin, registerWithPassword, loginWithPassword, logout,
+      addBooking, cancelBooking, approveBooking, rejectBooking,
+      addRepair, updateRepair, updateUser,
+      addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
+      users, updateUserRole, pendingAccounts, approveAccount,
+      autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain
     }}>
       {children}
     </DataContext.Provider>
@@ -200,6 +259,7 @@ export const App: React.FC = () => {
         <HashRouter>
           <Routes>
             <Route path="/" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/*" element={
               <Layout>

@@ -36,6 +36,43 @@ export async function exchangeLoginCode(code: string): Promise<string | null> {
   }
 }
 
+// Password accounts (ADR-0003): a second Account path alongside Google
+// OAuth, gated by the Admin-maintained Auto-Approved Domain list.
+export async function registerWithPassword(
+  email: string,
+  name: string,
+  password: string,
+): Promise<'ACTIVE' | 'PENDING'> {
+  const res = await fetch(`${API_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, name, password }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || 'Failed to register');
+  }
+  const data: { status: 'ACTIVE' | 'PENDING' } = await res.json();
+  return data.status;
+}
+
+export async function loginWithPassword(
+  email: string,
+  password: string,
+): Promise<string> {
+  const res = await fetch(`${API_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || 'Failed to log in');
+  }
+  const data: { accessToken: string } = await res.json();
+  return data.accessToken;
+}
+
 interface MeResponse {
   id: string;
   email: string;

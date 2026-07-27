@@ -2,11 +2,19 @@ import React, { useState } from 'react';
 import { useData } from '../App';
 import { UserRole } from '../types';
 import { Button } from '../components/Button';
-import { ShieldCheck, User, Tag, Trash2, Plus, Settings } from 'lucide-react';
+import { useToast } from '../components/Toast';
+import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe } from 'lucide-react';
 
 export const Admin: React.FC = () => {
-  const { currentUser, mockUsers, updateMockRole, repairCategories, addRepairCategory, removeRepairCategory } = useData();
+  const {
+    currentUser, users, updateUserRole, repairCategories, addRepairCategory, removeRepairCategory,
+    pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain,
+  } = useData();
+  const { success, error } = useToast();
   const [newCategory, setNewCategory] = useState('');
+  const [newDomain, setNewDomain] = useState('');
+  const [approvalRoles, setApprovalRoles] = useState<Record<string, UserRole>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const roleLabels = {
     [UserRole.ADMIN]: '系統管理員',
@@ -21,6 +29,51 @@ export const Admin: React.FC = () => {
     if (newCategory.trim()) {
       await addRepairCategory(newCategory.trim());
       setNewCategory('');
+    }
+  };
+
+  const handleRoleChange = async (userId: string, role: UserRole) => {
+    setBusyId(userId);
+    try {
+      await updateUserRole(userId, role);
+      success('角色已更新');
+    } catch {
+      error('角色更新失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleApprove = async (accountId: string) => {
+    const role = approvalRoles[accountId] || UserRole.USER;
+    setBusyId(accountId);
+    try {
+      await approveAccount(accountId, role);
+      success('帳號已核准');
+    } catch {
+      error('核准失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleAddDomain = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDomain.trim()) return;
+    try {
+      await addAutoApprovedDomain(newDomain.trim());
+      setNewDomain('');
+      success('網域已新增');
+    } catch {
+      error('新增網域失敗，請確認網域是否已存在');
+    }
+  };
+
+  const handleRemoveDomain = async (id: string) => {
+    try {
+      await removeAutoApprovedDomain(id);
+    } catch {
+      error('刪除網域失敗，請稍後再試');
     }
   };
 
@@ -52,7 +105,7 @@ export const Admin: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {mockUsers.map(user => (
+                {users.map(user => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="p-4 flex items-center gap-3">
                       <img src={user.avatar} alt="" className="w-8 h-8 rounded-full bg-gray-200" />
@@ -61,18 +114,19 @@ export const Admin: React.FC = () => {
                     <td className="p-4 text-slate-500">{user.email}</td>
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                        ${user.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' : 
-                          user.role === UserRole.MAINTENANCE ? 'bg-orange-100 text-orange-800' : 
-                          user.role === UserRole.ROOM_MANAGER ? 'bg-purple-100 text-purple-800' : 
+                        ${user.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' :
+                          user.role === UserRole.MAINTENANCE ? 'bg-orange-100 text-orange-800' :
+                          user.role === UserRole.ROOM_MANAGER ? 'bg-purple-100 text-purple-800' :
                           'bg-blue-100 text-blue-800'}`}>
                         {roleLabels[user.role]}
                       </span>
                     </td>
                     <td className="p-4">
                       <div className="flex gap-2">
-                        <select 
+                        <select
                           value={user.role}
-                          onChange={(e) => updateMockRole(user.id, e.target.value as UserRole)}
+                          disabled={busyId === user.id}
+                          onChange={(e) => handleRoleChange(user.id, e.target.value as UserRole)}
                           className="text-sm border rounded px-2 py-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                         >
                           {Object.values(UserRole).filter(r => r !== 'GUEST').map(role => (
@@ -88,7 +142,87 @@ export const Admin: React.FC = () => {
           </div>
         </section>
       )}
-      
+
+      {/* Account Approval Section - Restricted to ADMIN only */}
+      {currentUser?.role === UserRole.ADMIN && (
+        <section className="space-y-6 animate-fade-in">
+          <div className="flex justify-between items-center border-b pb-2">
+             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserCheck size={24} className="text-green-600"/> 待審核帳號</h2>
+             <div className="text-sm text-slate-400">帳號密碼註冊，非自動核准網域</div>
+          </div>
+
+          {pendingAccounts.length === 0 ? (
+            <div className="bg-white rounded-xl border border-dashed p-8 text-center text-slate-400">
+              目前沒有待審核的帳號
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border shadow-sm divide-y divide-gray-100">
+              {pendingAccounts.map(account => (
+                <div key={account.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-slate-700">{account.name}</div>
+                    <div className="text-sm text-slate-500">{account.email}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={approvalRoles[account.id] || UserRole.USER}
+                      onChange={(e) => setApprovalRoles(prev => ({ ...prev, [account.id]: e.target.value as UserRole }))}
+                      className="text-sm border rounded px-2 py-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      {Object.values(UserRole).filter(r => r !== 'GUEST').map(role => (
+                        <option key={role} value={role}>{roleLabels[role]}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" disabled={busyId === account.id} isLoading={busyId === account.id} onClick={() => handleApprove(account.id)}>
+                      核准
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Auto-Approved Domain Section - Restricted to ADMIN only */}
+      {currentUser?.role === UserRole.ADMIN && (
+        <section className="space-y-6 animate-fade-in">
+          <div className="flex justify-between items-center border-b pb-2">
+             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Globe size={24} className="text-blue-500"/> 自動核准網域</h2>
+          </div>
+
+          <div className="bg-white rounded-xl border shadow-sm p-6">
+            <p className="text-sm text-slate-500 mb-4">符合以下網域的帳號密碼註冊將自動啟用，無需人工審核。</p>
+
+            <form onSubmit={handleAddDomain} className="flex gap-2 mb-6">
+               <input
+                  type="text"
+                  value={newDomain}
+                  onChange={e => setNewDomain(e.target.value)}
+                  placeholder="輸入網域 (例如：vendor.example.com)"
+                  className="flex-1 border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+               />
+               <Button type="submit"><Plus size={18} className="mr-1"/> 新增網域</Button>
+            </form>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+               {autoApprovedDomains.map(d => (
+                 <div key={d.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 group hover:border-blue-300 transition-colors">
+                    <span className="text-slate-700 text-sm font-medium">{d.domain}</span>
+                    <button
+                       onClick={() => handleRemoveDomain(d.id)}
+                       className="text-slate-300 hover:text-red-500 transition-colors"
+                       title="刪除網域"
+                    >
+                       <Trash2 size={16}/>
+                    </button>
+                 </div>
+               ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Category Management Section - Available to ADMIN and MAINTENANCE */}
       <section className="space-y-6 animate-fade-in">
          <div className="flex justify-between items-center border-b pb-2">

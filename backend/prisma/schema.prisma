@@ -42,6 +42,15 @@ model User {
   repairTickets RepairTicket[]
 }
 
+// Auto-Approved Domain: an email domain an Admin has pre-cleared. A PASSWORD
+// registration whose email matches activates immediately as Role USER;
+// anything else lands PENDING for Account Approval. See CONTEXT.md, ADR-0003.
+model AutoApprovedDomain {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  createdAt DateTime @default(now())
+}
+
 model Account {
   id       String          @id @default(cuid())
   userId   String          @unique
@@ -53,7 +62,7 @@ model Account {
   googleSub          String? @unique
   googleRefreshToken String?
 
-  // PASSWORD provider fields (populated by a later ticket)
+  // PASSWORD provider fields
   passwordHash String?
 
   createdAt DateTime @default(now())

@@ -65,4 +65,18 @@ export interface RepairTicket {
   adminReply?: string;
 }
 
+export interface PendingAccount {
+  id: string; // Account id, used to approve
+  userId: string;
+  email: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface AutoApprovedDomain {
+  id: string;
+  domain: string;
+  createdAt: string;
+}
+
 export type CalendarViewType = 'MONTH' | 'WEEK' | 'DAY';
