@@ -5,10 +5,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditAction, Booking, BookingStatus, Prisma, Role } from '@prisma/client';
+import { AuditAction, Booking, BookingStatus, Prisma, Role, Room } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
 
 const ACTIVE_STATUSES: BookingStatus[] = [
@@ -31,7 +32,43 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly calendar: CalendarService,
   ) {}
+
+  // A Booking's Google Calendar sync (issue #11) needs the requester's
+  // Account (provider + refresh token), which findAll/create/decide/cancel
+  // otherwise never fetch — kept to one place rather than repeating the
+  // same findUnique across every write path.
+  private findAccountFor(userId: string) {
+    return this.prisma.account.findUnique({ where: { userId } });
+  }
+
+  // Syncs a newly-CONFIRMED Booking to Calendar and persists the resulting
+  // event id, mutating `booking` in place so the caller's response reflects
+  // it without a second read. Shared by create() (auto-confirmed Bookings)
+  // and decide() (an approved Booking) — the only two places a Booking
+  // becomes CONFIRMED.
+  private async applyCalendarSync(booking: Booking, room: Room): Promise<void> {
+    const account = await this.findAccountFor(booking.userId);
+    if (!account) return;
+    const googleEventId = await this.calendar.syncBookingConfirmed(
+      booking,
+      room,
+      account,
+    );
+    if (!googleEventId) return;
+    await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: { googleEventId },
+    });
+    booking.googleEventId = googleEventId;
+  }
+
+  private async removeCalendarEvent(booking: Booking): Promise<void> {
+    const account = await this.findAccountFor(booking.userId);
+    if (!account) return;
+    await this.calendar.removeBookingEvent(booking, account);
+  }
 
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
@@ -119,6 +156,8 @@ export class BookingsService {
           room,
           roomManagers,
         );
+      } else {
+        await this.applyCalendarSync(created, room);
       }
       return withUserName(created);
     } catch (err) {
@@ -175,6 +214,7 @@ export class BookingsService {
       updated.user,
       userId,
     );
+    await this.removeCalendarEvent(updated);
     const { room: _room, ...bookingWithUser } = updated;
     return withUserName(bookingWithUser);
   }
@@ -224,6 +264,11 @@ export class BookingsService {
       updated.room,
       updated.user,
     );
+    if (outcome === BookingStatus.CONFIRMED) {
+      await this.applyCalendarSync(updated, updated.room);
+    } else {
+      await this.removeCalendarEvent(updated);
+    }
     const { room: _room, ...bookingWithUser } = updated;
     return withUserName(bookingWithUser);
   }

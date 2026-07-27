@@ -6,6 +6,7 @@ import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { NotificationsService } from './../src/notifications/notifications.service';
+import { CalendarService } from './../src/calendar/calendar.service';
 import { Role } from '@prisma/client';
 
 interface BookingResponse {
@@ -15,6 +16,7 @@ interface BookingResponse {
   status: 'CONFIRMED' | 'PENDING_APPROVAL' | 'REJECTED' | 'CANCELLED';
   startTime: string;
   endTime: string;
+  googleEventId: string | null;
 }
 
 describe('Bookings (e2e)', () => {
@@ -37,6 +39,12 @@ describe('Bookings (e2e)', () => {
     notifyBookingSubmittedForApproval: jest.fn(),
     notifyBookingDecision: jest.fn(),
     notifyBookingCancelled: jest.fn(),
+  };
+  // Same rationale as `notifications` above — see
+  // calendar-sync-decisions.spec.ts for the pure decision logic.
+  const calendar = {
+    syncBookingConfirmed: jest.fn().mockResolvedValue(null),
+    removeBookingEvent: jest.fn().mockResolvedValue(undefined),
   };
 
   async function tokenFor(
@@ -78,6 +86,8 @@ describe('Bookings (e2e)', () => {
     })
       .overrideProvider(NotificationsService)
       .useValue(notifications)
+      .overrideProvider(CalendarService)
+      .useValue(calendar)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -487,6 +497,89 @@ describe('Bookings (e2e)', () => {
         string,
       ];
       expect(cancelledByUserId).toBe(userId);
+    });
+  });
+
+  describe('Calendar sync wiring (#11)', () => {
+    it('syncs an auto-confirmed Booking to Calendar and persists the returned event id', async () => {
+      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-auto-confirm');
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Calendar sync on create', ...slot })
+        .expect(201);
+
+      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
+      expect((created.body as BookingResponse).googleEventId).toBe(
+        'evt-auto-confirm',
+      );
+    });
+
+    it('does not attempt a Calendar sync for a PENDING_APPROVAL Booking', async () => {
+      const slot = nextSlot();
+      await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'No sync yet', ...slot })
+        .expect(201);
+
+      expect(calendar.syncBookingConfirmed).not.toHaveBeenCalled();
+    });
+
+    it('syncs to Calendar when a Booking is approved, persisting the returned event id', async () => {
+      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-approved');
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Calendar sync on approve', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      const approved = await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+
+      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
+      expect((approved.body as BookingResponse).googleEventId).toBe(
+        'evt-approved',
+      );
+    });
+
+    it('removes the Calendar event when a Booking is cancelled', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Calendar removal on cancel', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/cancel`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls the Calendar removal hook when a Booking is rejected (a no-op, since it was never synced)', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Calendar removal on reject', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+
+      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
     });
   });
 });

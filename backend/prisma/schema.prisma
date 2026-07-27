@@ -105,6 +105,11 @@ model Booking {
   endTime     DateTime
   status      BookingStatus
   createdAt   DateTime      @default(now())
+  // The synced Google Calendar event id for this Booking, set once it
+  // becomes CONFIRMED for a Google-authenticated User. Null for
+  // PENDING_APPROVAL Bookings, password-Account Users, or if the sync
+  // itself failed. See CONTEXT.md, issue #11.
+  googleEventId String?
 
   @@index([roomId, startTime, endTime])
 }

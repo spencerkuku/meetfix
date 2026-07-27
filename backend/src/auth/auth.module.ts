@@ -24,6 +24,6 @@ import { TokenEncryptionService } from './token-encryption.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy, JwtStrategy, TokenEncryptionService],
-  exports: [AuthService],
+  exports: [AuthService, TokenEncryptionService],
 })
 export class AuthModule {}

@@ -49,6 +49,10 @@ Uploaded files (room and repair-ticket photos) live on a Docker volume (`uploads
 
 The API sends transactional email on four domain events: a Booking submitted for approval (to the Room Manager(s)), a Booking Approval decision (to the requester), a Booking cancelled by someone other than the requester (to the requester), and a Repair Ticket status change or new reply (to the reporting User). Configure SMTP via the `SMTP_*` env vars above; with `SMTP_HOST` unset, sending is skipped (logged at debug level) — the rest of the app works normally without it.
 
+### Google Calendar sync
+
+A Booking becoming `CONFIRMED` creates an event on the requester's Google Calendar, using the Calendar OAuth scope and refresh token captured at Google login time (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; the refresh token itself is encrypted at rest via `ENCRYPTION_KEY`). When that Booking later becomes `REJECTED` or `CANCELLED`, the corresponding event is removed. This only applies to Google-authenticated Users — password-Account Users have no linked calendar, so no Calendar operation is attempted for them. Sync failures (revoked access, API errors) are logged and never fail the underlying Booking action.
+
 ### Backups & restore
 
 The `backup` service runs a `pg_dump` of the database every day at 03:00 (container time), gzip-compressed, into the `backups` named volume — see `backup/crontab` for the schedule and `backup/backup.sh` for the dump command. Backups older than `BACKUP_RETENTION_DAYS` (default 14) are deleted after each run.
