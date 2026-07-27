@@ -4,9 +4,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RepairTicket } from '@prisma/client';
+import { Prisma, RepairStatus, RepairTicket } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
+import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
+
+// Repair Status only ever advances forward — see CONTEXT.md. A ticket's
+// current status maps to the single status it can next become; `undefined`
+// means no MAINTENANCE-driven transition is possible from there.
+const NEXT_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
+  [RepairStatus.PENDING]: RepairStatus.IN_PROGRESS,
+  [RepairStatus.IN_PROGRESS]: RepairStatus.COMPLETED,
+  [RepairStatus.COMPLETED]: undefined,
+};
 
 export type RepairTicketWithUserName = RepairTicket & { userName: string };
 
@@ -65,6 +75,38 @@ export class RepairsService {
       include: { user: { select: { name: true } } },
     });
     return withUserName(created);
+  }
+
+  async updateStatus(
+    id: string,
+    updates: UpdateRepairTicketDto,
+  ): Promise<RepairTicketWithUserName> {
+    const ticket = await this.prisma.repairTicket.findUnique({
+      where: { id },
+    });
+    if (!ticket) {
+      throw new NotFoundException('Repair Ticket not found');
+    }
+
+    const data: Prisma.RepairTicketUpdateInput = {};
+    if (updates.status !== undefined) {
+      if (NEXT_STATUS[ticket.status] !== updates.status) {
+        throw new BadRequestException(
+          `Cannot transition a ${ticket.status} Repair Ticket to ${updates.status}`,
+        );
+      }
+      data.status = updates.status;
+    }
+    if (updates.adminReply !== undefined) {
+      data.adminReply = updates.adminReply;
+    }
+
+    const updated = await this.prisma.repairTicket.update({
+      where: { id },
+      data,
+      include: { user: { select: { name: true } } },
+    });
+    return withUserName(updated);
   }
 
   findAllCategories() {

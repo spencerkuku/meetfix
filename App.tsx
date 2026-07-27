@@ -16,7 +16,7 @@ import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
-import { fetchRepairs, createRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput } from './services/repairs';
+import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -44,10 +44,7 @@ interface DataContextType {
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
   addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
-  // Repair Ticket processing (#9) isn't wired to the backend yet — this
-  // mutates local state only, so status/reply changes in RepairManagement
-  // don't persist across a refresh until that ticket lands.
-  updateRepair: (id: string, updates: Partial<RepairTicket>) => void;
+  updateRepair: (id: string, updates: UpdateRepairTicketInput) => Promise<void>;
   updateMockRole: (userId: string, role: UserRole) => void;
   updateUser: (userId: string, data: Partial<User>) => void;
   addRepairCategory: (name: string) => Promise<void>;
@@ -143,8 +140,9 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setRepairs(prev => [ticket, ...prev]);
   };
 
-  const updateRepair = (id: string, updates: Partial<RepairTicket>) => {
-    setRepairs(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  const updateRepair = async (id: string, updates: UpdateRepairTicketInput) => {
+    const ticket = await updateRepairTicket(id, updates);
+    setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
   };
 
   const updateMockRole = (userId: string, role: UserRole) => {

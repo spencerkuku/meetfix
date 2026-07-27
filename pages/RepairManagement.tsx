@@ -8,9 +8,10 @@ import { CheckCircle, MessageSquare, X, User, Tag, MapPin, Phone, ClipboardList 
 
 export const RepairManagement: React.FC = () => {
   const { repairs, updateRepair } = useData();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('PENDING');
-  
+  const [busyId, setBusyId] = useState<string | null>(null);
+
   // Reply State
   const [replyId, setReplyId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -22,16 +23,30 @@ export const RepairManagement: React.FC = () => {
     return true;
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const handleStatusUpdate = (id: string, status: RepairStatus) => {
-    updateRepair(id, { status });
-    success(status === RepairStatus.IN_PROGRESS ? '已接手處理' : '案件已標記為完成');
+  const handleStatusUpdate = async (id: string, status: RepairStatus) => {
+    setBusyId(id);
+    try {
+      await updateRepair(id, { status });
+      success(status === RepairStatus.IN_PROGRESS ? '已接手處理' : '案件已標記為完成');
+    } catch {
+      error('更新失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
   };
 
-  const handleReplySubmit = (id: string) => {
-    updateRepair(id, { adminReply: replyText });
-    setReplyId(null);
-    setReplyText('');
-    success("回覆已發送");
+  const handleReplySubmit = async (id: string) => {
+    setBusyId(id);
+    try {
+      await updateRepair(id, { adminReply: replyText });
+      setReplyId(null);
+      setReplyText('');
+      success("回覆已發送");
+    } catch {
+      error('回覆發送失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const getStatusColor = (status: RepairStatus) => {
@@ -120,19 +135,19 @@ export const RepairManagement: React.FC = () => {
                 {/* Actions Section */}
                 <div className="flex flex-col gap-2 lg:min-w-[180px] lg:border-l lg:pl-6 border-gray-100 justify-center">
                     {ticket.status === RepairStatus.PENDING && (
-                        <Button size="sm" onClick={() => handleStatusUpdate(ticket.id, RepairStatus.IN_PROGRESS)} className="w-full bg-blue-600 hover:bg-blue-700">
+                        <Button size="sm" isLoading={busyId === ticket.id} disabled={busyId === ticket.id} onClick={() => handleStatusUpdate(ticket.id, RepairStatus.IN_PROGRESS)} className="w-full bg-blue-600 hover:bg-blue-700">
                             接手處理
                         </Button>
                     )}
-                    
+
                     {ticket.status === RepairStatus.IN_PROGRESS && (
-                        <Button size="sm" onClick={() => handleStatusUpdate(ticket.id, RepairStatus.COMPLETED)} className="w-full bg-green-600 hover:bg-green-700">
+                        <Button size="sm" isLoading={busyId === ticket.id} disabled={busyId === ticket.id} onClick={() => handleStatusUpdate(ticket.id, RepairStatus.COMPLETED)} className="w-full bg-green-600 hover:bg-green-700">
                             <CheckCircle size={16} className="mr-1"/> 標記完成
                         </Button>
                     )}
 
                     {ticket.status !== RepairStatus.COMPLETED && (
-                        <Button size="sm" variant="outline" onClick={() => setReplyId(ticket.id)} disabled={!!replyId} className="w-full">
+                        <Button size="sm" variant="outline" onClick={() => setReplyId(ticket.id)} disabled={!!replyId || busyId === ticket.id} className="w-full">
                             <MessageSquare size={16} className="mr-1"/> 填寫回覆
                         </Button>
                     )}
@@ -160,8 +175,8 @@ export const RepairManagement: React.FC = () => {
                                 placeholder="例如：已更換零件，測試正常..."
                                 autoFocus
                                 />
-                                <Button size="sm" onClick={() => handleReplySubmit(ticket.id)}>發送</Button>
-                                <Button size="sm" variant="ghost" onClick={() => setReplyId(null)}><X size={16}/></Button>
+                                <Button size="sm" isLoading={busyId === ticket.id} disabled={busyId === ticket.id} onClick={() => handleReplySubmit(ticket.id)}>發送</Button>
+                                <Button size="sm" variant="ghost" disabled={busyId === ticket.id} onClick={() => setReplyId(null)}><X size={16}/></Button>
                             </div>
                         </div>
                     ) : (

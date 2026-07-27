@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -9,11 +11,15 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
+import { Role } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { RepairsService } from './repairs.service';
 import type { RepairTicketFormBody } from './repair-ticket-form.dto';
+import type { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import {
   repairPhotoUploadOptions,
   repairPhotoUrl,
@@ -48,5 +54,12 @@ export class RepairsController {
       },
       photo ? repairPhotoUrl(photo.filename) : undefined,
     );
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.MAINTENANCE, Role.ADMIN)
+  update(@Param('id') id: string, @Body() body: UpdateRepairTicketDto) {
+    return this.repairsService.updateStatus(id, body);
   }
 }

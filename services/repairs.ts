@@ -27,6 +27,11 @@ function toRepairTicket(ticket: ApiRepairTicket): RepairTicket {
   };
 }
 
+export interface UpdateRepairTicketInput {
+  status?: RepairTicket['status'];
+  adminReply?: string;
+}
+
 export async function fetchRepairs(): Promise<RepairTicket[]> {
   const res = await fetch(`${API_URL}/repairs`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch repair tickets');
@@ -53,6 +58,19 @@ export async function createRepairTicket(
     body: formData,
   });
   if (!res.ok) throw new Error('Failed to submit repair ticket');
+  return toRepairTicket(await res.json());
+}
+
+export async function updateRepairTicket(
+  id: string,
+  updates: UpdateRepairTicketInput,
+): Promise<RepairTicket> {
+  const res = await fetch(`${API_URL}/repairs/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(true),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error('Failed to update repair ticket');
   return toRepairTicket(await res.json());
 }
 

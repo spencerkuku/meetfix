@@ -30,6 +30,7 @@ describe('Repairs (e2e)', () => {
   let prisma: PrismaService;
   let userToken: string;
   let adminToken: string;
+  let maintenanceToken: string;
   let roomId: string;
   const createdUploadPaths: string[] = [];
 
@@ -63,6 +64,7 @@ describe('Repairs (e2e)', () => {
 
     userToken = await tokenFor('reporter@school.edu.tw', Role.USER);
     adminToken = await tokenFor('repairadmin@school.edu.tw', Role.ADMIN);
+    maintenanceToken = await tokenFor('repairmaint@school.edu.tw', Role.MAINTENANCE);
 
     const room = await prisma.room.create({
       data: {
@@ -171,6 +173,109 @@ describe('Repairs (e2e)', () => {
       .field('category', '硬體設備')
       .field('description', 'test')
       .expect(404);
+  });
+
+  describe('Repair Ticket processing (Maintenance)', () => {
+    async function createTicket(): Promise<string> {
+      const res = await request(app.getHttpServer())
+        .post('/repairs')
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('location', 'C303 教室')
+        .field('category', '硬體設備')
+        .field('description', '燈管不亮')
+        .expect(201);
+      return (res.body as RepairTicketResponse).id;
+    }
+
+    it('rejects updates from a non-MAINTENANCE, non-ADMIN User', async () => {
+      const id = await createTicket();
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(403);
+    });
+
+    it('MAINTENANCE can move a ticket PENDING -> IN_PROGRESS -> COMPLETED', async () => {
+      const id = await createTicket();
+
+      const started = await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      expect((started.body as RepairTicketResponse).status).toBe(
+        'IN_PROGRESS',
+      );
+
+      const completed = await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+      expect((completed.body as RepairTicketResponse).status).toBe(
+        'COMPLETED',
+      );
+    });
+
+    it('ADMIN can also move a ticket through the workflow', async () => {
+      const id = await createTicket();
+      const res = await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      expect((res.body as RepairTicketResponse).status).toBe('IN_PROGRESS');
+    });
+
+    it('rejects skipping a status (PENDING -> COMPLETED)', async () => {
+      const id = await createTicket();
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(400);
+    });
+
+    it('rejects moving a COMPLETED ticket back to PENDING', async () => {
+      const id = await createTicket();
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'PENDING' })
+        .expect(400);
+    });
+
+    it('MAINTENANCE can attach a reply when updating a ticket', async () => {
+      const id = await createTicket();
+      const res = await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS', adminReply: '已預約零件，明日到場處理' })
+        .expect(200);
+      expect((res.body as RepairTicketResponse & { adminReply: string }).adminReply).toBe(
+        '已預約零件，明日到場處理',
+      );
+    });
+
+    it('404s when updating a Repair Ticket that does not exist', () => {
+      return request(app.getHttpServer())
+        .patch('/repairs/not-a-real-ticket')
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(404);
+    });
   });
 
   describe('Repair Categories', () => {
