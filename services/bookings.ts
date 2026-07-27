@@ -38,3 +38,21 @@ export async function cancelBooking(id: string): Promise<Booking> {
   if (!res.ok) throw new Error('Failed to cancel booking');
   return res.json();
 }
+
+export async function approveBooking(id: string): Promise<Booking> {
+  const res = await fetch(`${API_URL}/bookings/${id}/approve`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to approve booking');
+  return res.json();
+}
+
+export async function rejectBooking(id: string): Promise<Booking> {
+  const res = await fetch(`${API_URL}/bookings/${id}/reject`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to reject booking');
+  return res.json();
+}

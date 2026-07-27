@@ -15,7 +15,7 @@ import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
-import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, CreateBookingInput } from './services/bookings';
+import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -65,11 +65,9 @@ interface DataContextType {
   completeGoogleLogin: (code: string) => Promise<void>;
   logout: () => void;
   addBooking: (input: CreateBookingInput) => Promise<void>;
-  // Booking Approval (#7) isn't wired to the backend yet — this mutates
-  // local state only, so approve/reject in the Approvals page doesn't
-  // persist across a refresh until that ticket lands.
-  updateBooking: (id: string, updates: Partial<Booking>) => void;
   cancelBooking: (id: string) => Promise<void>;
+  approveBooking: (id: string) => Promise<void>;
+  rejectBooking: (id: string) => Promise<void>;
   addRepair: (repair: RepairTicket) => void;
   updateRepair: (id: string, updates: Partial<RepairTicket>) => void;
   updateMockRole: (userId: string, role: UserRole) => void;
@@ -143,12 +141,18 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setBookings(prev => [...prev, booking]);
   };
 
-  const updateBooking = (id: string, updates: Partial<Booking>) => {
-    setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
-  };
-
   const cancelBooking = async (id: string) => {
     const booking = await cancelBookingApi(id);
+    setBookings(prev => prev.map(b => b.id === id ? booking : b));
+  };
+
+  const approveBooking = async (id: string) => {
+    const booking = await approveBookingApi(id);
+    setBookings(prev => prev.map(b => b.id === id ? booking : b));
+  };
+
+  const rejectBooking = async (id: string) => {
+    const booking = await rejectBookingApi(id);
     setBookings(prev => prev.map(b => b.id === id ? booking : b));
   };
 
@@ -197,7 +201,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return (
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
-      loginWithGoogle, completeGoogleLogin, logout, addBooking, updateBooking, cancelBooking,
+      loginWithGoogle, completeGoogleLogin, logout, addBooking, cancelBooking, approveBooking, rejectBooking,
       addRepair, updateRepair, updateMockRole, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom
     }}>

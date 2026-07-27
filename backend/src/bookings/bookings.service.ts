@@ -151,4 +151,35 @@ export class BookingsService {
     });
     return withUserName(updated);
   }
+
+  // Booking Approval: a ROOM_MANAGER (or ADMIN) deciding a PENDING_APPROVAL
+  // Booking. See CONTEXT.md — distinct from Account Approval.
+  async approve(id: string): Promise<BookingWithUserName> {
+    return this.decide(id, BookingStatus.CONFIRMED);
+  }
+
+  async reject(id: string): Promise<BookingWithUserName> {
+    return this.decide(id, BookingStatus.REJECTED);
+  }
+
+  private async decide(
+    id: string,
+    outcome: typeof BookingStatus.CONFIRMED | typeof BookingStatus.REJECTED,
+  ): Promise<BookingWithUserName> {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (booking.status !== BookingStatus.PENDING_APPROVAL) {
+      throw new BadRequestException(
+        'Only a PENDING_APPROVAL Booking can be approved or rejected',
+      );
+    }
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: { status: outcome },
+      include: { user: { select: { name: true } } },
+    });
+    return withUserName(updated);
+  }
 }

@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { Role } from '@prisma/client';
 
 interface BookingResponse {
   id: string;
@@ -22,6 +23,9 @@ describe('Bookings (e2e)', () => {
   let userToken: string;
   let userId: string;
   let otherUserToken: string;
+  let roomManagerToken: string;
+  let adminToken: string;
+  let maintenanceToken: string;
   let openRoomId: string;
   let approvalRoomId: string;
 
@@ -37,6 +41,14 @@ describe('Bookings (e2e)', () => {
     const code = authService.createLoginCode(user.id);
     const { accessToken } = await authService.exchangeLoginCode(code);
     return { token: accessToken, userId: user.id };
+  }
+
+  async function tokenForRole(email: string, role: Role): Promise<string> {
+    const { userId: id } = await tokenFor(email);
+    await prisma.user.update({ where: { id }, data: { role } });
+    const code = authService.createLoginCode(id);
+    const { accessToken } = await authService.exchangeLoginCode(code);
+    return accessToken;
   }
 
   // Every test picks a fresh, far-future hour so tests never collide with
@@ -65,6 +77,15 @@ describe('Bookings (e2e)', () => {
     userId = user.userId;
     const other = await tokenFor('other@school.edu.tw');
     otherUserToken = other.token;
+    roomManagerToken = await tokenForRole(
+      'manager@school.edu.tw',
+      Role.ROOM_MANAGER,
+    );
+    adminToken = await tokenForRole('admin@school.edu.tw', Role.ADMIN);
+    maintenanceToken = await tokenForRole(
+      'maintenance@school.edu.tw',
+      Role.MAINTENANCE,
+    );
 
     const openRoom = await prisma.room.create({
       data: {
@@ -270,5 +291,102 @@ describe('Bookings (e2e)', () => {
       .send({ roomId: openRoomId, title: 'Ownership check', ...slot })
       .expect(201);
     expect((created.body as BookingResponse).userId).toBe(userId);
+  });
+
+  describe('Booking Approval', () => {
+    async function createPending(): Promise<string> {
+      const slot = nextSlot();
+      const res = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Needs approval', ...slot })
+        .expect(201);
+      const body = res.body as BookingResponse;
+      expect(body.status).toBe('PENDING_APPROVAL');
+      return body.id;
+    }
+
+    it('ROOM_MANAGER can approve a PENDING_APPROVAL Booking, setting it CONFIRMED', async () => {
+      const id = await createPending();
+      const res = await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('CONFIRMED');
+    });
+
+    it('ROOM_MANAGER can reject a PENDING_APPROVAL Booking, releasing its slot', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'To reject', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('REJECTED');
+
+      // The slot is free again for a new request.
+      await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .send({
+          roomId: approvalRoomId,
+          title: 'Takes the freed slot',
+          ...slot,
+        })
+        .expect(201);
+    });
+
+    it('rejects approval by a User who is not ROOM_MANAGER or ADMIN', async () => {
+      const id = await createPending();
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('rejects rejection by a User who is not ROOM_MANAGER or ADMIN', async () => {
+      const id = await createPending();
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('rejects approval by a MAINTENANCE User', async () => {
+      const id = await createPending();
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .expect(403);
+    });
+
+    it('ADMIN can also approve a PENDING_APPROVAL Booking', async () => {
+      const id = await createPending();
+      const res = await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('CONFIRMED');
+    });
+
+    it('rejects deciding a Booking that is not PENDING_APPROVAL', async () => {
+      const id = await createPending();
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+
+      // Already CONFIRMED — a second decision is rejected, not silently reapplied.
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(400);
+    });
   });
 });
