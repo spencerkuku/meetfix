@@ -279,6 +279,20 @@ describe('Auth (e2e)', () => {
       expect(accountCount).toBe(1);
     });
 
+    it('rejects the Google-link state token when replayed as a session Bearer token', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${state}`)
+        .expect(401);
+    });
+
     it('rejects linking when the Google account email does not match the current account email', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
       const linkRes = await request(app.getHttpServer())
