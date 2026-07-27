@@ -462,7 +462,52 @@ describe('Bookings (e2e)', () => {
       await request(app.getHttpServer())
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
-        .expect(400);
+        .expect(409);
+    });
+
+    it('a cancel racing an approve on the same Booking never resurrects CANCELLED back to CONFIRMED', async () => {
+      const id = await createPending();
+
+      const [cancelRes, approveRes] = await Promise.all([
+        request(app.getHttpServer())
+          .patch(`/bookings/${id}/cancel`)
+          .set('Authorization', `Bearer ${userToken}`),
+        request(app.getHttpServer())
+          .patch(`/bookings/${id}/approve`)
+          .set('Authorization', `Bearer ${roomManagerToken}`),
+      ]);
+
+      // Whichever write commits first at the database wins; the loser must
+      // be rejected outright (409), never silently overwritten. Both sides
+      // returning 200 is only valid if cancel is the one that ran second
+      // (cancelling an already-CONFIRMED Booking is legitimate) — the
+      // invariant that must hold in every ordering is: a CANCELLED Booking
+      // is never resurrected to CONFIRMED.
+      const final = await prisma.booking.findUniqueOrThrow({ where: { id } });
+      if (cancelRes.status === 200) {
+        expect(final.status).toBe('CANCELLED');
+      } else {
+        expect(cancelRes.status).toBe(409);
+        expect(approveRes.status).toBe(200);
+        expect(final.status).toBe('CONFIRMED');
+      }
+    });
+
+    it('two racing approve calls on the same Booking result in exactly one Calendar sync, never an orphaned duplicate', async () => {
+      const id = await createPending();
+
+      const [firstRes, secondRes] = await Promise.all([
+        request(app.getHttpServer())
+          .patch(`/bookings/${id}/approve`)
+          .set('Authorization', `Bearer ${roomManagerToken}`),
+        request(app.getHttpServer())
+          .patch(`/bookings/${id}/approve`)
+          .set('Authorization', `Bearer ${adminToken}`),
+      ]);
+
+      const statuses = [firstRes.status, secondRes.status].sort();
+      expect(statuses).toEqual([200, 409]);
+      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
     });
   });
 

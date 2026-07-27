@@ -222,9 +222,19 @@ export class BookingsService {
     if (booking.endTime < new Date()) {
       throw new BadRequestException('Cannot cancel a past Booking');
     }
-    const updated = await this.prisma.booking.update({
-      where: { id },
+    // Conditional on status, not just id, so a concurrent decide() that
+    // already moved this Booking out of an active status can't be silently
+    // overwritten back to CANCELLED, and vice versa — see the CANCELLED-
+    // resurrection race this closes.
+    const result = await this.prisma.booking.updateMany({
+      where: { id, status: { in: ACTIVE_STATUSES } },
       data: { status: BookingStatus.CANCELLED },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('This Booking is no longer active');
+    }
+    const updated = await this.prisma.booking.findUniqueOrThrow({
+      where: { id },
       include: { user: true, room: true },
     });
     await this.notifications.notifyBookingCancelled(
@@ -257,18 +267,28 @@ export class BookingsService {
     if (!booking) {
       throw new NotFoundException('Booking not found');
     }
-    if (booking.status !== BookingStatus.PENDING_APPROVAL) {
-      throw new BadRequestException(
-        'Only a PENDING_APPROVAL Booking can be approved or rejected',
-      );
-    }
     const updated = await this.audit.runAuditedTransaction(
-      (tx) =>
-        tx.booking.update({
-          where: { id },
+      async (tx) => {
+        // Conditional on status, not just id, so two racing decide() calls
+        // (or a decide() racing a concurrent cancel()) can't both proceed —
+        // only the first to commit wins, closing both the CANCELLED-
+        // resurrection race and the duplicate-approval orphaned-Calendar-
+        // event race in one atomic guard, mirroring create()'s existing
+        // Serializable-transaction correctness.
+        const result = await tx.booking.updateMany({
+          where: { id, status: BookingStatus.PENDING_APPROVAL },
           data: { status: outcome },
+        });
+        if (result.count === 0) {
+          throw new ConflictException(
+            'Only a PENDING_APPROVAL Booking can be approved or rejected',
+          );
+        }
+        return tx.booking.findUniqueOrThrow({
+          where: { id },
           include: { user: true, room: true },
-        }),
+        });
+      },
       {
         actorId,
         action: AuditAction.BOOKING_APPROVAL,
