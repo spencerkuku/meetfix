@@ -1,0 +1,52 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
+import type { User } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RepairsService } from './repairs.service';
+import type { RepairTicketFormBody } from './repair-ticket-form.dto';
+import {
+  repairPhotoUploadOptions,
+  repairPhotoUrl,
+} from './repair-upload.config';
+
+@Controller('repairs')
+@UseGuards(JwtAuthGuard)
+export class RepairsController {
+  constructor(private readonly repairsService: RepairsService) {}
+
+  @Get()
+  findAll() {
+    return this.repairsService.findAll();
+  }
+
+  @Post()
+  @UseInterceptors(FileInterceptor('photo', repairPhotoUploadOptions))
+  create(
+    @CurrentUser() user: User,
+    @Body() body: RepairTicketFormBody,
+    @UploadedFile() photo?: Express.Multer.File,
+  ) {
+    return this.repairsService.create(
+      user.id,
+      {
+        roomId: body.roomId,
+        location: body.location ?? '',
+        category: body.category ?? '',
+        description: body.description ?? '',
+        userClass: body.userClass,
+        userPhone: body.userPhone,
+      },
+      photo ? repairPhotoUrl(photo.filename) : undefined,
+    );
+  }
+}

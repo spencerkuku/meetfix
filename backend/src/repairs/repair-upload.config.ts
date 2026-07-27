@@ -4,9 +4,9 @@ import {
   photoUrl,
 } from '../uploads/photo-upload.factory';
 
-export const roomPhotoUploadOptions: MulterOptions =
-  createPhotoUploadOptions('rooms');
+export const repairPhotoUploadOptions: MulterOptions =
+  createPhotoUploadOptions('repairs');
 
-export function roomPhotoUrl(filename: string): string {
-  return photoUrl('rooms', filename);
+export function repairPhotoUrl(filename: string): string {
+  return photoUrl('repairs', filename);
 }

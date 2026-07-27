@@ -1,37 +1,41 @@
 
 import React, { useState, useEffect } from 'react';
 import { useData } from '../App';
-import { RepairTicket, RepairStatus, UserRole } from '../types';
+import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin } from 'lucide-react';
 
 export const Repairs: React.FC = () => {
   const { repairs, rooms, addRepair, currentUser, repairCategories } = useData();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
-  
+
   // Form State
+  const FREE_TEXT_LOCATION = 'FREE_TEXT';
+  const [selectedRoomId, setSelectedRoomId] = useState<string>(FREE_TEXT_LOCATION);
   const [locationText, setLocationText] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<string>('');
-  
+
   // Extended Form Fields
-  const [userName, setUserName] = useState('');
   const [userClass, setUserClass] = useState('');
   const [userPhone, setUserPhone] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // Initialize Form Defaults
   useEffect(() => {
     if (showModal && currentUser) {
+      setSelectedRoomId(FREE_TEXT_LOCATION);
       setLocationText('');
-      setCategory(repairCategories[0] || '其他');
-      setUserName(currentUser.name);
+      setCategory(repairCategories[0]?.name || '');
       setUserClass(currentUser.class || '');
       setUserPhone(currentUser.phone || '');
       setDescription('');
+      setPhotoFile(null);
       setImagePreview(null);
     }
   }, [showModal, currentUser, repairCategories]);
@@ -46,6 +50,7 @@ export const Repairs: React.FC = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setPhotoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -54,26 +59,31 @@ export const Repairs: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
-    const newRepair: RepairTicket = {
-      id: crypto.randomUUID(),
-      roomId: locationText, // Storing free text location
-      userId: currentUser.id,
-      userName: userName,
-      userClass: userClass,
-      userPhone: userPhone,
-      description,
-      category,
-      imageUrl: imagePreview || undefined,
-      status: RepairStatus.PENDING,
-      createdAt: new Date().toISOString(),
-    };
-    addRepair(newRepair);
-    success("報修單已送出！");
-    setShowModal(false);
+    setSubmitting(true);
+    try {
+      const usingRealRoom = selectedRoomId !== FREE_TEXT_LOCATION;
+      await addRepair(
+        {
+          roomId: usingRealRoom ? selectedRoomId : undefined,
+          location: usingRealRoom ? '' : locationText,
+          category,
+          description,
+          userClass: userClass || undefined,
+          userPhone: userPhone || undefined,
+        },
+        photoFile ?? undefined,
+      );
+      success("報修單已送出！");
+      setShowModal(false);
+    } catch {
+      error("報修單送出失敗,請稍後再試");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getStatusColor = (status: RepairStatus) => {
@@ -92,11 +102,6 @@ export const Repairs: React.FC = () => {
     }
   };
 
-  const getLocationName = (ticket: RepairTicket) => {
-    // Try to match with known rooms, otherwise use raw string
-    const room = rooms.find(r => r.id === ticket.roomId);
-    return room ? room.name : ticket.roomId;
-  };
 
   // --- Privacy Helpers ---
   
@@ -173,7 +178,7 @@ export const Repairs: React.FC = () => {
                   <div>
                     <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
                       <MapPin size={16} className="text-slate-400"/>
-                      {getLocationName(ticket)}
+                      {ticket.location}
                     </h3>
                     <p className="text-slate-600 mt-1 whitespace-pre-wrap">{ticket.description}</p>
                   </div>
@@ -224,19 +229,30 @@ export const Repairs: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">問題地點 *</label>
-                  <input 
-                    required 
-                    type="text" 
-                    value={locationText} 
-                    onChange={e => setLocationText(e.target.value)} 
-                    placeholder="例如：A101 會議室, 2樓走廊..." 
-                    className="w-full border rounded-md p-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
+                  <select
+                    required
+                    value={selectedRoomId}
+                    onChange={e => setSelectedRoomId(e.target.value)}
+                    className="w-full border rounded-md p-2 bg-white mb-2"
+                  >
+                    <option value={FREE_TEXT_LOCATION}>自行輸入地點...</option>
+                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                  {selectedRoomId === FREE_TEXT_LOCATION && (
+                    <input
+                      required
+                      type="text"
+                      value={locationText}
+                      onChange={e => setLocationText(e.target.value)}
+                      placeholder="例如：2樓走廊, 一樓大廳..."
+                      className="w-full border rounded-md p-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">問題分類 *</label>
                   <select required value={category} onChange={e => setCategory(e.target.value)} className="w-full border rounded-md p-2 bg-white">
-                    {repairCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                    {repairCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -289,8 +305,8 @@ export const Repairs: React.FC = () => {
                 <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">報修人資料</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">姓名 *</label>
-                      <input required type="text" value={userName} onChange={e => setUserName(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" />
+                      <label className="block text-xs text-slate-500 mb-1">姓名</label>
+                      <p className="text-sm text-slate-700 py-1.5">{currentUser?.name}</p>
                    </div>
                    <div>
                       <label className="block text-xs text-slate-500 mb-1">班級 / 部門</label>
@@ -306,7 +322,7 @@ export const Repairs: React.FC = () => {
 
               <div className="pt-4 flex justify-end gap-3 border-t">
                 <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>取消</Button>
-                <Button type="submit">送出通報</Button>
+                <Button type="submit" disabled={submitting} isLoading={submitting}>送出通報</Button>
               </div>
             </form>
           </div>

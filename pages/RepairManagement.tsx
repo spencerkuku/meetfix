@@ -7,7 +7,7 @@ import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, X, User, Tag, MapPin, Phone, ClipboardList } from 'lucide-react';
 
 export const RepairManagement: React.FC = () => {
-  const { repairs, rooms, updateRepair, repairCategories } = useData();
+  const { repairs, updateRepair } = useData();
   const { success } = useToast();
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('PENDING');
   
@@ -50,10 +50,6 @@ export const RepairManagement: React.FC = () => {
     }
   };
 
-  const getLocationName = (ticketId: string, roomId: string) => {
-    const room = rooms.find(r => r.id === roomId);
-    return room ? room.name : roomId;
-  };
 
   return (
     <div className="space-y-6">
@@ -102,7 +98,7 @@ export const RepairManagement: React.FC = () => {
                    <div>
                         <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
                         <MapPin size={18} className="text-slate-400"/>
-                        {getLocationName(ticket.id, ticket.roomId)}
+                        {ticket.location}
                         </h3>
                         <p className="text-slate-700 mt-2 p-3 bg-slate-50 rounded border border-slate-100">{ticket.description}</p>
                    </div>

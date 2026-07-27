@@ -37,8 +37,9 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
-  account  Account?
-  bookings Booking[]
+  account       Account?
+  bookings      Booking[]
+  repairTickets RepairTicket[]
 }
 
 model Account {
@@ -68,7 +69,8 @@ model Room {
   requiresApproval Boolean  @default(false)
   createdAt        DateTime @default(now())
 
-  bookings Booking[]
+  bookings      Booking[]
+  repairTickets RepairTicket[]
 }
 
 // Booking Status: see CONTEXT.md. CONFIRMED and PENDING_APPROVAL both hold
@@ -95,4 +97,46 @@ model Booking {
   createdAt   DateTime      @default(now())
 
   @@index([roomId, startTime, endTime])
+}
+
+// Repair Status: see CONTEXT.md. Set by whichever MAINTENANCE user picks
+// up the ticket — there is no per-ticket assignee field.
+enum RepairStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Repair Category: an Admin-managed classification for Repair Tickets.
+// Freely added/removed by Admins, not fixed at the code level. See
+// CONTEXT.md. Tickets store the category name at submission time (below)
+// rather than a hard foreign key, so removing a category never orphans or
+// cascades into existing tickets' history.
+model RepairCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// Repair Ticket: a report of a facility problem tied to a Room (roomId set)
+// or a free-text location (roomId null, for shared spaces without a Room
+// record). `location` is always a human-readable label — for a real Room
+// it's a copy of the Room's name at submission time, so the ticket still
+// reads sensibly even if the Room is later renamed or removed. See
+// CONTEXT.md.
+model RepairTicket {
+  id          String       @id @default(cuid())
+  roomId      String?
+  room        Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  location    String
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  userClass   String?
+  userPhone   String?
+  category    String
+  description String
+  imageUrl    String?
+  status      RepairStatus @default(PENDING)
+  adminReply  String?
+  createdAt   DateTime     @default(now())
 }

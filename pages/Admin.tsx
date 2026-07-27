@@ -16,10 +16,10 @@ export const Admin: React.FC = () => {
     [UserRole.GUEST]: '訪客'
   };
 
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newCategory.trim()) {
-      addRepairCategory(newCategory.trim());
+      await addRepairCategory(newCategory.trim());
       setNewCategory('');
     }
   };
@@ -111,10 +111,10 @@ export const Admin: React.FC = () => {
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                {repairCategories.map(cat => (
-                 <div key={cat} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 group hover:border-blue-300 transition-colors">
-                    <span className="text-slate-700 text-sm font-medium">{cat}</span>
-                    <button 
-                       onClick={() => removeRepairCategory(cat)}
+                 <div key={cat.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 group hover:border-blue-300 transition-colors">
+                    <span className="text-slate-700 text-sm font-medium">{cat.name}</span>
+                    <button
+                       onClick={() => removeRepairCategory(cat.id)}
                        className="text-slate-300 hover:text-red-500 transition-colors"
                        title="刪除分類"
                     >

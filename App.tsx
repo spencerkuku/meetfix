@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { User, Room, Booking, RepairTicket, UserRole, RepairStatus, DEFAULT_REPAIR_CATEGORIES } from './types';
+import { User, Room, Booking, RepairTicket, RepairCategory, UserRole } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { AuthCallback } from './pages/AuthCallback';
@@ -16,6 +16,7 @@ import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
+import { fetchRepairs, createRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput } from './services/repairs';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -23,32 +24,6 @@ const MOCK_USERS: User[] = [
   { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatar: 'https://i.pravatar.cc/150?u=b', phone: '0922-333-444' },
   { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatar: 'https://i.pravatar.cc/150?u=c' },
   { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatar: 'https://i.pravatar.cc/150?u=d' },
-];
-
-const INITIAL_REPAIRS: RepairTicket[] = [
-  { 
-    id: 'rp1', 
-    roomId: 'r1', 
-    userId: 'u1', 
-    userName: '陳小美', 
-    userClass: '資訊三甲',
-    userPhone: '0912-345-678',
-    category: '硬體設備',
-    description: '投影機燈泡閃爍', 
-    status: RepairStatus.PENDING, 
-    createdAt: new Date(Date.now() - 86400000).toISOString(), 
-  },
-  { 
-    id: 'rp2', 
-    roomId: '一樓大廳', 
-    userId: 'u4', 
-    userName: '王大明', 
-    category: '桌椅家具',
-    description: '咖啡機漏水', 
-    status: RepairStatus.COMPLETED, 
-    createdAt: new Date(Date.now() - 172800000).toISOString(), 
-    adminReply: '已清理並更換墊圈。', 
-  },
 ];
 
 // --- Context ---
@@ -59,7 +34,7 @@ interface DataContextType {
   rooms: Room[];
   bookings: Booking[];
   repairs: RepairTicket[];
-  repairCategories: string[];
+  repairCategories: RepairCategory[];
   authLoading: boolean;
   loginWithGoogle: () => void;
   completeGoogleLogin: (code: string) => Promise<void>;
@@ -68,12 +43,15 @@ interface DataContextType {
   cancelBooking: (id: string) => Promise<void>;
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
-  addRepair: (repair: RepairTicket) => void;
+  addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
+  // Repair Ticket processing (#9) isn't wired to the backend yet — this
+  // mutates local state only, so status/reply changes in RepairManagement
+  // don't persist across a refresh until that ticket lands.
   updateRepair: (id: string, updates: Partial<RepairTicket>) => void;
   updateMockRole: (userId: string, role: UserRole) => void;
   updateUser: (userId: string, data: Partial<User>) => void;
-  addRepairCategory: (category: string) => void;
-  removeRepairCategory: (category: string) => void;
+  addRepairCategory: (name: string) => Promise<void>;
+  removeRepairCategory: (id: string) => Promise<void>;
   addRoom: (input: RoomFormInput, photo: File) => Promise<void>;
   updateRoom: (id: string, input: Partial<RoomFormInput>, photo?: File) => Promise<void>;
   removeRoom: (id: string) => Promise<void>;
@@ -92,9 +70,9 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [authLoading, setAuthLoading] = useState(true);
   const [mockUsers, setMockUsers] = useState<User[]>(MOCK_USERS);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [repairs, setRepairs] = useState<RepairTicket[]>(INITIAL_REPAIRS);
+  const [repairs, setRepairs] = useState<RepairTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [repairCategories, setRepairCategories] = useState<string[]>(DEFAULT_REPAIR_CATEGORIES);
+  const [repairCategories, setRepairCategories] = useState<RepairCategory[]>([]);
 
   useEffect(() => {
     const token = getToken();
@@ -113,10 +91,14 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     if (!currentUser) {
       setRooms([]);
       setBookings([]);
+      setRepairs([]);
+      setRepairCategories([]);
       return;
     }
     fetchRooms().then(setRooms).catch(() => setRooms([]));
     fetchBookings().then(setBookings).catch(() => setBookings([]));
+    fetchRepairs().then(setRepairs).catch(() => setRepairs([]));
+    fetchRepairCategories().then(setRepairCategories).catch(() => setRepairCategories([]));
   }, [currentUser]);
 
   const loginWithGoogle = () => {
@@ -156,8 +138,11 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setBookings(prev => prev.map(b => b.id === id ? booking : b));
   };
 
-  const addRepair = (repair: RepairTicket) => setRepairs(prev => [...prev, repair]);
-  
+  const addRepair = async (input: RepairTicketFormInput, photo?: File) => {
+    const ticket = await createRepairTicket(input, photo);
+    setRepairs(prev => [ticket, ...prev]);
+  };
+
   const updateRepair = (id: string, updates: Partial<RepairTicket>) => {
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
   };
@@ -173,14 +158,14 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     }
   };
 
-  const addRepairCategory = (category: string) => {
-    if (!repairCategories.includes(category)) {
-      setRepairCategories([...repairCategories, category]);
-    }
+  const addRepairCategory = async (name: string) => {
+    const category = await createRepairCategory(name);
+    setRepairCategories(prev => [...prev, category]);
   };
 
-  const removeRepairCategory = (category: string) => {
-    setRepairCategories(prev => prev.filter(c => c !== category));
+  const removeRepairCategory = async (id: string) => {
+    await deleteRepairCategory(id);
+    setRepairCategories(prev => prev.filter(c => c.id !== id));
   };
 
   const addRoom = async (input: RoomFormInput, photo: File) => {

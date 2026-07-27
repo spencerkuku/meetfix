@@ -44,19 +44,15 @@ export enum RepairStatus {
   COMPLETED = 'COMPLETED'
 }
 
-// Default categories for initialization
-export const DEFAULT_REPAIR_CATEGORIES = [
-  '硬體設備',
-  '軟體/網路',
-  '環境清潔',
-  '冷氣空調',
-  '桌椅家具',
-  '其他'
-];
+export interface RepairCategory {
+  id: string;
+  name: string;
+}
 
 export interface RepairTicket {
   id: string;
-  roomId: string;
+  roomId?: string; // set when tied to a real Room; absent for a free-text location. See CONTEXT.md.
+  location: string; // human-readable location — the Room's name, or free text.
   userId: string;
   userName: string;
   userClass?: string;
