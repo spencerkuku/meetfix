@@ -251,5 +251,40 @@ describe('Admin (e2e)', () => {
         .send({ role: 'MAINTENANCE' })
         .expect(400);
     });
+
+    it('rejects demoting the last remaining ADMIN (including self-demotion), leaving the Role unchanged', async () => {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'admin@school.edu.tw' },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/admin/users/${admin.id}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'USER' })
+        .expect(400);
+
+      const unchanged = await prisma.user.findUniqueOrThrow({
+        where: { id: admin.id },
+      });
+      expect(unchanged.role).toBe('ADMIN');
+    });
+
+    it('allows demoting an ADMIN when another ADMIN still remains', async () => {
+      await tokenFor('second-admin@school.edu.tw', Role.ADMIN);
+      const secondAdmin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'second-admin@school.edu.tw' },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/admin/users/${secondAdmin.id}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'USER' })
+        .expect(200);
+
+      const updated = await prisma.user.findUniqueOrThrow({
+        where: { id: secondAdmin.id },
+      });
+      expect(updated.role).toBe('USER');
+    });
   });
 });

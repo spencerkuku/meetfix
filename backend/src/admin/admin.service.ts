@@ -10,6 +10,7 @@ import {
   AccountStatus,
   AuditAction,
   Prisma,
+  Role,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -153,6 +154,16 @@ export class AdminService {
       throw new BadRequestException(
         'This User does not have an active Account — use Account Approval instead',
       );
+    }
+    if (user.role === Role.ADMIN && dto.role !== Role.ADMIN) {
+      const remainingAdmins = await this.prisma.user.count({
+        where: { role: Role.ADMIN, id: { not: userId } },
+      });
+      if (remainingAdmins === 0) {
+        throw new BadRequestException(
+          'Cannot remove the last remaining Admin',
+        );
+      }
     }
     return this.audit.runAuditedTransaction(
       (tx) =>
