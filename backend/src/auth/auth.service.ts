@@ -16,7 +16,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { GoogleProfile } from './google-profile.interface';
+import { GOOGLE_OAUTH_SCOPE, GoogleProfile } from './google-profile.interface';
 import { TokenEncryptionService } from './token-encryption.service';
 import { RegisterWithPasswordDto } from './register-with-password.dto';
 import { LoginWithPasswordDto } from './login-with-password.dto';
@@ -24,6 +24,7 @@ import { LoginWithPasswordDto } from './login-with-password.dto';
 const LOGIN_CODE_TTL_MS = 60_000;
 const PASSWORD_HASH_ROUNDS = 10;
 const MIN_PASSWORD_LENGTH = 8;
+const GOOGLE_LINK_STATE_PURPOSE = 'google-account-link';
 
 @Injectable()
 export class AuthService {
@@ -93,7 +94,7 @@ export class AuthService {
           err.code === 'P2002'
         ) {
           throw new ConflictException(
-            'An account already exists for this email address',
+            'An account already exists for this email address. Log in with your password and link Google from your profile instead.',
           );
         }
         throw err;
@@ -101,6 +102,94 @@ export class AuthService {
     }
 
     return { user };
+  }
+
+  // Google account linking: lets a password-Account User attach a Google
+  // identity to their existing Account (e.g. for Calendar sync), initiated
+  // only from an authenticated profile action — never auto-linked from the
+  // login page, so a mere email match on the Google side can never take
+  // over someone else's password Account.
+  buildGoogleLinkUrl(userId: string): string {
+    const state = this.signGoogleLinkState(userId);
+    const params = new URLSearchParams({
+      client_id: this.config.get<string>('GOOGLE_CLIENT_ID') ?? '',
+      redirect_uri: this.config.get<string>('GOOGLE_CALLBACK_URL') ?? '',
+      response_type: 'code',
+      scope: GOOGLE_OAUTH_SCOPE,
+      access_type: 'offline',
+      prompt: 'consent',
+      hd: this.config.get<string>('SCHOOL_GOOGLE_DOMAIN') ?? '',
+      state,
+    });
+    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  }
+
+  async linkGoogleAccount(
+    state: string,
+    profile: GoogleProfile,
+  ): Promise<{ user: User }> {
+    const userId = this.verifyGoogleLinkState(state);
+
+    const schoolDomain = this.config.get<string>('SCHOOL_GOOGLE_DOMAIN');
+    if (!schoolDomain || profile.hostedDomain !== schoolDomain) {
+      throw new UnauthorizedException(
+        'Google account is not part of the school Workspace domain',
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { account: true },
+    });
+    if (!user || !user.account) {
+      throw new UnauthorizedException('No account found to link Google to');
+    }
+    if (user.email !== profile.email) {
+      throw new ConflictException(
+        'The Google account email must match your account email',
+      );
+    }
+
+    const googleSubOwner = await this.prisma.account.findUnique({
+      where: { googleSub: profile.googleSub },
+    });
+    if (googleSubOwner && googleSubOwner.userId !== userId) {
+      throw new ConflictException(
+        'This Google account is already linked to a different user',
+      );
+    }
+
+    await this.prisma.account.update({
+      where: { userId },
+      data: {
+        googleSub: profile.googleSub,
+        ...(profile.refreshToken
+          ? { googleRefreshToken: this.tokenEncryption.encrypt(profile.refreshToken) }
+          : {}),
+      },
+    });
+
+    return { user };
+  }
+
+  private signGoogleLinkState(userId: string): string {
+    return this.jwt.sign(
+      { sub: userId, purpose: GOOGLE_LINK_STATE_PURPOSE },
+      { expiresIn: '5m' },
+    );
+  }
+
+  private verifyGoogleLinkState(state: string): string {
+    let payload: { sub: string; purpose: string };
+    try {
+      payload = this.jwt.verify(state);
+    } catch {
+      throw new UnauthorizedException('Google link request is invalid or expired');
+    }
+    if (payload.purpose !== GOOGLE_LINK_STATE_PURPOSE) {
+      throw new UnauthorizedException('Google link request is invalid');
+    }
+    return payload.sub;
   }
 
   createLoginCode(userId: string): string {
@@ -208,6 +297,13 @@ export class AuthService {
 
   async findUserById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async isGoogleLinked(userId: string): Promise<boolean> {
+    const account = await this.prisma.account.findUnique({
+      where: { userId },
+    });
+    return account?.googleSub != null;
   }
 
   private async signToken(user: User): Promise<string> {

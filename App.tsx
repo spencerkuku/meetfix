@@ -42,6 +42,7 @@ interface DataContextType {
   authLoading: boolean;
   loginWithGoogle: () => void;
   completeGoogleLogin: (code: string) => Promise<void>;
+  refreshCurrentUser: () => Promise<void>;
   registerWithPassword: (email: string, name: string, password: string) => Promise<'ACTIVE' | 'PENDING'>;
   loginWithPassword: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -140,6 +141,16 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     const token = await exchangeLoginCode(code);
     if (!token) return;
     setToken(token);
+    const user = await fetchCurrentUser(token);
+    setCurrentUser(user);
+  };
+
+  // Re-fetches /auth/me against the existing session — used after linking a
+  // Google account, so the sidebar/profile reflect the new googleLinked
+  // status without requiring a fresh login.
+  const refreshCurrentUser = async () => {
+    const token = getToken();
+    if (!token) return;
     const user = await fetchCurrentUser(token);
     setCurrentUser(user);
   };
@@ -246,7 +257,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return (
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
-      loginWithGoogle, completeGoogleLogin, registerWithPassword, loginWithPassword, logout,
+      loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
       addBooking, cancelBooking, approveBooking, rejectBooking,
       addRepair, updateRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,

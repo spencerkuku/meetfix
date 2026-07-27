@@ -78,6 +78,7 @@ interface MeResponse {
   email: string;
   name: string;
   role: User['role'];
+  googleLinked: boolean;
 }
 
 export async function fetchCurrentUser(token: string): Promise<User | null> {
@@ -92,9 +93,25 @@ export async function fetchCurrentUser(token: string): Promise<User | null> {
       name: data.name,
       email: data.email,
       role: data.role,
+      googleLinked: data.googleLinked,
       avatar: `https://i.pravatar.cc/150?u=${data.id}`,
     };
   } catch {
     return null;
   }
+}
+
+// Lets an already-logged-in password-Account User attach a Google identity
+// to their Account (e.g. to enable Calendar sync). Returns the Google
+// authorization URL to navigate the browser to directly — never routes the
+// session's own access token through a URL.
+export async function getGoogleLinkUrl(token: string): Promise<string> {
+  const res = await fetch(`${API_URL}/auth/google/link`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error('Failed to start Google account linking');
+  }
+  const data: { url: string } = await res.json();
+  return data.url;
 }

@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../App';
 import { UserRole } from '../types';
-import { 
-  Calendar, 
-  Wrench, 
-  LayoutDashboard, 
+import { getGoogleLinkUrl, getToken } from '../services/auth';
+import { useToast } from './Toast';
+import {
+  Calendar,
+  Wrench,
+  LayoutDashboard,
   DoorOpen,
   UserCircle,
   X,
@@ -16,7 +18,8 @@ import {
   LogOut,
   Menu,
   ClipboardList,
-  History
+  History,
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from './Button';
 
@@ -24,8 +27,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { currentUser, logout, updateUser } = useData();
   const location = useLocation();
   const navigate = useNavigate();
+  const { error: showError } = useToast();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [linkingGoogle, setLinkingGoogle] = useState(false);
 
   // Profile Form State
   const [profileName, setProfileName] = useState('');
@@ -50,6 +55,19 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     setProfileClass(currentUser.class || '');
     setProfilePhone(currentUser.phone || '');
     setShowProfileModal(true);
+  };
+
+  const handleLinkGoogle = async () => {
+    const token = getToken();
+    if (!token) return;
+    setLinkingGoogle(true);
+    try {
+      const url = await getGoogleLinkUrl(token);
+      window.location.href = url;
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '無法啟動 Google 連結，請稍後再試');
+      setLinkingGoogle(false);
+    }
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -268,6 +286,30 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
               <div className="flex justify-center mb-6">
                 <img src={currentUser.avatar} alt="" className="w-24 h-24 rounded-full bg-slate-100 object-cover ring-4 ring-slate-50" />
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-700">Google 帳號連結</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {currentUser.googleLinked ? '已連結，Booking 會自動同步到 Google 日曆' : '連結後可自動同步 Booking 到 Google 日曆'}
+                  </p>
+                </div>
+                {currentUser.googleLinked ? (
+                  <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium shrink-0">
+                    <CheckCircle2 size={16} /> 已連結
+                  </span>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 bg-white"
+                    disabled={linkingGoogle}
+                    onClick={handleLinkGoogle}
+                  >
+                    {linkingGoogle ? '連結中…' : '連結 Google'}
+                  </Button>
+                )}
               </div>
 
               <div>

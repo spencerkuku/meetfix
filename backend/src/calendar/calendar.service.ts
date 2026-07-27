@@ -32,10 +32,12 @@ export class CalendarService {
     room: Room,
     account: Account,
   ): Promise<string | null> {
-    if (!shouldSyncBookingToCalendar(booking.status, account.provider)) {
-      return null;
-    }
-    if (!account.googleRefreshToken) {
+    if (
+      !shouldSyncBookingToCalendar(
+        booking.status,
+        account.googleRefreshToken != null,
+      )
+    ) {
       return null;
     }
     try {

@@ -1,35 +1,26 @@
-import { AccountProvider, BookingStatus } from '@prisma/client';
+import { BookingStatus } from '@prisma/client';
 import {
   shouldRemoveBookingFromCalendar,
   shouldSyncBookingToCalendar,
 } from './calendar-sync-decisions';
 
 describe('shouldSyncBookingToCalendar', () => {
-  it('fires for a CONFIRMED Booking on a Google-authenticated Account', () => {
-    expect(
-      shouldSyncBookingToCalendar(
-        BookingStatus.CONFIRMED,
-        AccountProvider.GOOGLE,
-      ),
-    ).toBe(true);
+  it('fires for a CONFIRMED Booking on a Google-linked Account', () => {
+    expect(shouldSyncBookingToCalendar(BookingStatus.CONFIRMED, true)).toBe(
+      true,
+    );
   });
 
   it('does not fire for a PENDING_APPROVAL Booking', () => {
-    expect(
-      shouldSyncBookingToCalendar(
-        BookingStatus.PENDING_APPROVAL,
-        AccountProvider.GOOGLE,
-      ),
-    ).toBe(false);
+    expect(shouldSyncBookingToCalendar(BookingStatus.PENDING_APPROVAL, true)).toBe(
+      false,
+    );
   });
 
-  it('does not fire for a password-Account User even if CONFIRMED', () => {
-    expect(
-      shouldSyncBookingToCalendar(
-        BookingStatus.CONFIRMED,
-        AccountProvider.PASSWORD,
-      ),
-    ).toBe(false);
+  it('does not fire for a User with no Google account linked, even if CONFIRMED', () => {
+    expect(shouldSyncBookingToCalendar(BookingStatus.CONFIRMED, false)).toBe(
+      false,
+    );
   });
 });
 

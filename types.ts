@@ -15,6 +15,7 @@ export interface User {
   avatar: string;
   class?: string;
   phone?: string;
+  googleLinked?: boolean;
 }
 
 export interface Room {

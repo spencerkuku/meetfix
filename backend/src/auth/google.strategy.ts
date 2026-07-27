@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, StrategyOptions, Profile } from 'passport-google-oauth20';
-import { GoogleProfile } from './google-profile.interface';
+import { GOOGLE_OAUTH_SCOPE, GoogleProfile } from './google-profile.interface';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -13,11 +13,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientID: config.get<string>('GOOGLE_CLIENT_ID'),
       clientSecret: config.get<string>('GOOGLE_CLIENT_SECRET'),
       callbackURL: config.get<string>('GOOGLE_CALLBACK_URL'),
-      scope: [
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/calendar.events',
-      ],
+      scope: GOOGLE_OAUTH_SCOPE.split(' '),
     } as StrategyOptions);
     this.schoolDomain = config.get<string>('SCHOOL_GOOGLE_DOMAIN') ?? '';
   }

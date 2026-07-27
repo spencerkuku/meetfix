@@ -36,17 +36,45 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(
-    @Req() req: { user: GoogleProfile },
+    @Req() req: { user: GoogleProfile; query: { state?: string } },
     @Res() res: Response,
   ) {
+    const frontendUrl = this.config.get<string>('FRONTEND_URL');
+    // The SPA uses HashRouter, so the route must live after the `#`.
+    const { state } = req.query;
+    if (state) {
+      // `state` present means this callback came from the authenticated
+      // "link Google" action (see GET /auth/google/link), not a login —
+      // no login code is issued, the browser's existing session is unchanged.
+      try {
+        await this.authService.linkGoogleAccount(state, req.user);
+        return res.redirect(`${frontendUrl}/#/auth/callback?linked=1`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to link Google account';
+        return res.redirect(
+          `${frontendUrl}/#/auth/callback?linked=0&reason=${encodeURIComponent(message)}`,
+        );
+      }
+    }
+
     const { user } = await this.authService.loginWithGoogle(req.user);
     // Hand the browser a short-lived, single-use code rather than the JWT
     // itself, so the access token never appears in a redirect URL or
     // server access log — the front end exchanges it via POST /auth/exchange.
     const code = this.authService.createLoginCode(user.id);
-    const frontendUrl = this.config.get<string>('FRONTEND_URL');
-    // The SPA uses HashRouter, so the route must live after the `#`.
     res.redirect(`${frontendUrl}/#/auth/callback?code=${code}`);
+  }
+
+  // Requires an existing session (JwtAuthGuard) — Google account linking can
+  // only be initiated by an already-authenticated User, never auto-linked
+  // via email match on the login page. Returns the Google authorization URL
+  // as JSON (rather than redirecting this request itself) so the front end
+  // can navigate the browser there directly without ever putting the
+  // session's access token in a URL.
+  @Get('google/link')
+  @UseGuards(JwtAuthGuard)
+  googleLink(@CurrentUser() user: User) {
+    return { url: this.authService.buildGoogleLinkUrl(user.id) };
   }
 
   @Post('exchange')
@@ -66,7 +94,14 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: User) {
-    return { id: user.id, email: user.email, name: user.name, role: user.role };
+  async me(@CurrentUser() user: User) {
+    const googleLinked = await this.authService.isGoogleLinked(user.id);
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      googleLinked,
+    };
   }
 }

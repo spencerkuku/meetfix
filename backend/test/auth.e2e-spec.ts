@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  INestApplication,
+  UnauthorizedException,
+} from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
@@ -159,6 +163,184 @@ describe('Auth (e2e)', () => {
     expect(location).toContain(
       encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
     );
+  });
+
+  describe('Google account linking', () => {
+    // Extracts the `state` query param from the URL returned by
+    // GET /auth/google/link, so tests can feed it straight into
+    // AuthService.linkGoogleAccount — the same seam adaptation as
+    // loginWithGoogle above: the browser-redirect handshake with the real
+    // Google authorization server can't be exercised in this suite, so the
+    // post-passport linking logic is tested directly.
+    function extractState(url: string): string {
+      const state = new URL(url).searchParams.get('state');
+      if (!state) throw new Error('state missing from Google link URL');
+      return state;
+    }
+
+    async function registerAndLoginPasswordUser(
+      email = 'dual@school.edu.tw',
+    ): Promise<{ userId: string; accessToken: string }> {
+      await prisma.autoApprovedDomain.upsert({
+        where: { domain: 'school.edu.tw' },
+        create: { domain: 'school.edu.tw' },
+        update: {},
+      });
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, name: '雙重帳號使用者', password: 'password123' })
+        .expect(201);
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password: 'password123' })
+        .expect(201);
+      const { accessToken } = login.body as { accessToken: string };
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      return { userId: user.id, accessToken };
+    }
+
+    afterEach(async () => {
+      await prisma.autoApprovedDomain.deleteMany({});
+    });
+
+    it('GET /auth/google/link rejects requests with no session', () => {
+      return request(app.getHttpServer()).get('/auth/google/link').expect(401);
+    });
+
+    it('GET /auth/google/link returns a Google authorization URL scoped to the school domain and Calendar, carrying a state for the current user', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser();
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const { url } = res.body as { url: string };
+      expect(url).toContain('accounts.google.com');
+      expect(url).toContain('hd=school.edu.tw');
+      expect(url).toContain(
+        encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
+      );
+      expect(new URL(url).searchParams.get('state')).toEqual(expect.any(String));
+    });
+
+    it('links a Google identity onto an existing password Account without touching its password credential', async () => {
+      const { userId, accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await authService.linkGoogleAccount(
+        state,
+        schoolProfile({ email: 'dual@school.edu.tw', googleSub: 'google-sub-link-1' }),
+      );
+
+      const account = await prisma.account.findUnique({ where: { userId } });
+      expect(account?.provider).toBe('PASSWORD');
+      expect(account?.passwordHash).toEqual(expect.any(String));
+      expect(account?.googleSub).toBe('google-sub-link-1');
+      expect(account?.googleRefreshToken).not.toBe('refresh-token-1');
+      expect(account?.googleRefreshToken).toEqual(expect.any(String));
+    });
+
+    it('makes a Google login work afterwards, resolving to the same User', async () => {
+      const { userId, accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+      await authService.linkGoogleAccount(
+        state,
+        schoolProfile({ email: 'dual@school.edu.tw', googleSub: 'google-sub-link-2' }),
+      );
+
+      const { user } = await authService.loginWithGoogle(
+        schoolProfile({ email: 'dual@school.edu.tw', googleSub: 'google-sub-link-2' }),
+      );
+      expect(user.id).toBe(userId);
+
+      const accountCount = await prisma.account.count();
+      expect(accountCount).toBe(1);
+    });
+
+    it('rejects linking when the Google account email does not match the current account email', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await expect(
+        authService.linkGoogleAccount(
+          state,
+          schoolProfile({ email: 'someone-else@school.edu.tw' }),
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects linking a Google identity that is already linked to a different User', async () => {
+      const first = await registerAndLoginPasswordUser('dual-a@school.edu.tw');
+      const firstLink = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${first.accessToken}`)
+        .expect(200);
+      await authService.linkGoogleAccount(
+        extractState((firstLink.body as { url: string }).url),
+        schoolProfile({ email: 'dual-a@school.edu.tw', googleSub: 'google-sub-shared' }),
+      );
+
+      const second = await registerAndLoginPasswordUser('dual-b@school.edu.tw');
+      const secondLink = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${second.accessToken}`)
+        .expect(200);
+
+      await expect(
+        authService.linkGoogleAccount(
+          extractState((secondLink.body as { url: string }).url),
+          schoolProfile({ email: 'dual-b@school.edu.tw', googleSub: 'google-sub-shared' }),
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects linking a Google account outside the school Workspace domain', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await request(app.getHttpServer())
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await expect(
+        authService.linkGoogleAccount(
+          state,
+          schoolProfile({ email: 'dual@school.edu.tw', hostedDomain: 'gmail.com' }),
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects a tampered or expired link state', async () => {
+      await expect(
+        authService.linkGoogleAccount('not-a-real-state', schoolProfile()),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects a Google login for an email that already has a password Account, pointing the user at profile linking instead', async () => {
+      await registerAndLoginPasswordUser('dual-conflict@school.edu.tw');
+
+      await expect(
+        authService.loginWithGoogle(
+          schoolProfile({
+            email: 'dual-conflict@school.edu.tw',
+            googleSub: 'google-sub-conflict',
+          }),
+        ),
+      ).rejects.toThrow(/link Google/);
+    });
   });
 
   describe('Password accounts (ADR-0003)', () => {

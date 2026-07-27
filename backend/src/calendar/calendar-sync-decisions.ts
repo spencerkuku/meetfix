@@ -1,18 +1,20 @@
-import { AccountProvider, BookingStatus } from '@prisma/client';
+import { BookingStatus } from '@prisma/client';
 
 // Pure decision logic for whether a Google Calendar sync should happen, and
 // on which existing event — kept separate from CalendarService's actual
 // Google API calls so it's unit-testable without network access or a real
 // OAuth token. See CONTEXT.md / issue #11.
+//
+// Eligibility is based on whether the Account has a Google identity linked
+// (googleSub/googleRefreshToken present), not on how the User originally
+// registered — a password Account can link Google later and becomes
+// eligible immediately.
 
 export function shouldSyncBookingToCalendar(
   bookingStatus: BookingStatus,
-  accountProvider: AccountProvider,
+  isGoogleLinked: boolean,
 ): boolean {
-  return (
-    bookingStatus === BookingStatus.CONFIRMED &&
-    accountProvider === AccountProvider.GOOGLE
-  );
+  return bookingStatus === BookingStatus.CONFIRMED && isGoogleLinked;
 }
 
 export function shouldRemoveBookingFromCalendar(
