@@ -4,8 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Account, AccountProvider, AccountStatus, Prisma } from '@prisma/client';
+import {
+  Account,
+  AccountProvider,
+  AccountStatus,
+  AuditAction,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { UpdateRoleDto } from './update-role.dto';
 import { AddDomainDto } from './add-domain.dto';
 
@@ -24,7 +31,10 @@ function toPendingAccount(
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async listPendingAccounts() {
     const accounts = await this.prisma.account.findMany({
@@ -36,7 +46,7 @@ export class AdminService {
   }
 
   // Account Approval: distinct from Booking Approval. See CONTEXT.md, ADR-0003.
-  async approveAccount(accountId: string, dto: UpdateRoleDto) {
+  async approveAccount(actorId: string, accountId: string, dto: UpdateRoleDto) {
     if (!dto.role) {
       throw new BadRequestException('role is required');
     }
@@ -50,16 +60,24 @@ export class AdminService {
       throw new BadRequestException('This Account is not pending approval');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.account.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.account.update({
         where: { id: accountId },
         data: { status: AccountStatus.ACTIVE },
-      }),
-      this.prisma.user.update({
+      });
+      await tx.user.update({
         where: { id: account.userId },
         data: { role: dto.role },
-      }),
-    ]);
+      });
+      await this.audit.record(
+        actorId,
+        AuditAction.ACCOUNT_APPROVAL,
+        'Account',
+        accountId,
+        `Approved with Role ${dto.role}`,
+        tx,
+      );
+    });
   }
 
   listAutoApprovedDomains() {
@@ -110,7 +128,7 @@ export class AdminService {
     });
   }
 
-  async updateUserRole(userId: string, dto: UpdateRoleDto) {
+  async updateUserRole(actorId: string, userId: string, dto: UpdateRoleDto) {
     if (!dto.role) {
       throw new BadRequestException('role is required');
     }
@@ -126,10 +144,21 @@ export class AdminService {
         'This User does not have an active Account — use Account Approval instead',
       );
     }
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { role: dto.role },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { role: dto.role },
+        select: { id: true, email: true, name: true, role: true, createdAt: true },
+      });
+      await this.audit.record(
+        actorId,
+        AuditAction.ROLE_CHANGE,
+        'User',
+        userId,
+        `Role changed from ${user.role} to ${dto.role}`,
+        tx,
+      );
+      return updated;
     });
   }
 }

@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { User, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain } from './types';
+import { User, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain, AuditLogEntry } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -11,6 +11,7 @@ import { Repairs } from './pages/Repairs';
 import { RepairManagement } from './pages/RepairManagement';
 import { Dashboard } from './pages/Dashboard';
 import { Admin } from './pages/Admin';
+import { AuditLog } from './pages/AuditLog';
 import { RoomManagement } from './pages/RoomManagement';
 import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
@@ -19,6 +20,7 @@ import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } f
 import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
 import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
+import { fetchAuditLog } from './services/audit';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -60,6 +62,7 @@ interface DataContextType {
   autoApprovedDomains: AutoApprovedDomain[];
   addAutoApprovedDomain: (domain: string) => Promise<void>;
   removeAutoApprovedDomain: (id: string) => Promise<void>;
+  auditLog: AuditLogEntry[];
   addRepairCategory: (name: string) => Promise<void>;
   removeRepairCategory: (id: string) => Promise<void>;
   addRoom: (input: RoomFormInput, photo: File) => Promise<void>;
@@ -86,6 +89,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [users, setUsers] = useState<User[]>([]);
   const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
   const [autoApprovedDomains, setAutoApprovedDomains] = useState<AutoApprovedDomain[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
 
   useEffect(() => {
     const token = getToken();
@@ -119,11 +123,13 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setUsers([]);
       setPendingAccounts([]);
       setAutoApprovedDomains([]);
+      setAuditLog([]);
       return;
     }
     fetchUsers().then(setUsers).catch(() => setUsers([]));
     fetchPendingAccounts().then(setPendingAccounts).catch(() => setPendingAccounts([]));
     fetchAutoApprovedDomains().then(setAutoApprovedDomains).catch(() => setAutoApprovedDomains([]));
+    fetchAuditLog().then(setAuditLog).catch(() => setAuditLog([]));
   }, [currentUser]);
 
   const loginWithGoogle = () => {
@@ -245,7 +251,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       addRepair, updateRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, pendingAccounts, approveAccount,
-      autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain
+      autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain, auditLog
     }}>
       {children}
     </DataContext.Provider>
@@ -270,6 +276,7 @@ export const App: React.FC = () => {
                   <Route path="/repair-management" element={<RepairManagement />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/admin" element={<Admin />} />
+                  <Route path="/audit-log" element={<AuditLog />} />
                   <Route path="/rooms" element={<RoomManagement />} />
                   <Route path="*" element={<Navigate to="/bookings" replace />} />
                 </Routes>

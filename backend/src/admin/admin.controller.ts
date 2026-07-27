@@ -10,6 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import type { User } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -29,8 +31,12 @@ export class AdminController {
   }
 
   @Patch('accounts/:id/approve')
-  approveAccount(@Param('id') id: string, @Body() body: UpdateRoleDto) {
-    return this.adminService.approveAccount(id, body);
+  approveAccount(
+    @CurrentUser() actor: User,
+    @Param('id') id: string,
+    @Body() body: UpdateRoleDto,
+  ) {
+    return this.adminService.approveAccount(actor.id, id, body);
   }
 
   @Get('auto-approved-domains')
@@ -55,7 +61,11 @@ export class AdminController {
   }
 
   @Patch('users/:id/role')
-  updateUserRole(@Param('id') id: string, @Body() body: UpdateRoleDto) {
-    return this.adminService.updateUserRole(id, body);
+  updateUserRole(
+    @CurrentUser() actor: User,
+    @Param('id') id: string,
+    @Body() body: UpdateRoleDto,
+  ) {
+    return this.adminService.updateUserRole(actor.id, id, body);
   }
 }

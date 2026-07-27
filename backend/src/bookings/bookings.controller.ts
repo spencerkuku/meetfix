@@ -39,14 +39,14 @@ export class BookingsController {
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(Role.ROOM_MANAGER, Role.ADMIN)
-  approve(@Param('id') id: string) {
-    return this.bookingsService.approve(id);
+  approve(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.bookingsService.approve(id, user.id);
   }
 
   @Patch(':id/reject')
   @UseGuards(RolesGuard)
   @Roles(Role.ROOM_MANAGER, Role.ADMIN)
-  reject(@Param('id') id: string) {
-    return this.bookingsService.reject(id);
+  reject(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.bookingsService.reject(id, user.id);
   }
 }

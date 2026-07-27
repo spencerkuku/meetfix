@@ -111,6 +111,7 @@ describe('Bookings (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.booking.deleteMany({});
     await prisma.room.deleteMany({
       where: { id: { in: [openRoomId, approvalRoomId] } },

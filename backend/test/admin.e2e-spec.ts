@@ -45,6 +45,7 @@ describe('Admin (e2e)', () => {
 
   afterEach(async () => {
     await prisma.autoApprovedDomain.deleteMany({});
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.account.deleteMany({ where: { provider: 'PASSWORD' } });
     await prisma.user.deleteMany({
       where: { account: { provider: 'PASSWORD' } },
@@ -52,6 +53,7 @@ describe('Admin (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.account.deleteMany({});
     await prisma.user.deleteMany({});
     await app.close();

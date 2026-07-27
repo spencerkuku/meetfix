@@ -7,5 +7,6 @@
 	reverse_proxy /repairs* api:3000
 	reverse_proxy /repair-categories* api:3000
 	reverse_proxy /admin* api:3000
+	reverse_proxy /audit-log* api:3000
 	reverse_proxy /uploads/* api:3000
 }

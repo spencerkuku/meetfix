@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RepairStatus, RepairTicket } from '@prisma/client';
+import { AuditAction, Prisma, RepairStatus, RepairTicket } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 
@@ -29,7 +30,10 @@ function withUserName(
 
 @Injectable()
 export class RepairsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(): Promise<RepairTicketWithUserName[]> {
     const tickets = await this.prisma.repairTicket.findMany({
@@ -78,21 +82,23 @@ export class RepairsService {
   }
 
   async updateStatus(
+    actorId: string,
     id: string,
     updates: UpdateRepairTicketDto,
   ): Promise<RepairTicketWithUserName> {
-    const ticket = await this.prisma.repairTicket.findUnique({
+    const existingTicket = await this.prisma.repairTicket.findUnique({
       where: { id },
     });
-    if (!ticket) {
+    if (!existingTicket) {
       throw new NotFoundException('Repair Ticket not found');
     }
+    const previousStatus = existingTicket.status;
 
     const data: Prisma.RepairTicketUpdateInput = {};
     if (updates.status !== undefined) {
-      if (NEXT_STATUS[ticket.status] !== updates.status) {
+      if (NEXT_STATUS[previousStatus] !== updates.status) {
         throw new BadRequestException(
-          `Cannot transition a ${ticket.status} Repair Ticket to ${updates.status}`,
+          `Cannot transition a ${previousStatus} Repair Ticket to ${updates.status}`,
         );
       }
       data.status = updates.status;
@@ -101,10 +107,23 @@ export class RepairsService {
       data.adminReply = updates.adminReply;
     }
 
-    const updated = await this.prisma.repairTicket.update({
-      where: { id },
-      data,
-      include: { user: { select: { name: true } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const ticket = await tx.repairTicket.update({
+        where: { id },
+        data,
+        include: { user: { select: { name: true } } },
+      });
+      if (updates.status !== undefined) {
+        await this.audit.record(
+          actorId,
+          AuditAction.REPAIR_STATUS_CHANGE,
+          'RepairTicket',
+          id,
+          `Status changed from ${previousStatus} to ${updates.status}`,
+          tx,
+        );
+      }
+      return ticket;
     });
     return withUserName(updated);
   }

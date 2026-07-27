@@ -79,6 +79,7 @@ describe('Repairs (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.repairTicket.deleteMany({});
     await prisma.room.deleteMany({ where: { id: roomId } });
     await prisma.repairCategory.deleteMany({

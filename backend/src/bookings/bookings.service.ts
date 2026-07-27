@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Booking, BookingStatus, Prisma, Role } from '@prisma/client';
+import { AuditAction, Booking, BookingStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateBookingDto } from './create-booking.dto';
 
 const ACTIVE_STATUSES: BookingStatus[] = [
@@ -25,7 +26,10 @@ function withUserName(
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
@@ -154,16 +158,17 @@ export class BookingsService {
 
   // Booking Approval: a ROOM_MANAGER (or ADMIN) deciding a PENDING_APPROVAL
   // Booking. See CONTEXT.md — distinct from Account Approval.
-  async approve(id: string): Promise<BookingWithUserName> {
-    return this.decide(id, BookingStatus.CONFIRMED);
+  async approve(id: string, actorId: string): Promise<BookingWithUserName> {
+    return this.decide(id, actorId, BookingStatus.CONFIRMED);
   }
 
-  async reject(id: string): Promise<BookingWithUserName> {
-    return this.decide(id, BookingStatus.REJECTED);
+  async reject(id: string, actorId: string): Promise<BookingWithUserName> {
+    return this.decide(id, actorId, BookingStatus.REJECTED);
   }
 
   private async decide(
     id: string,
+    actorId: string,
     outcome: typeof BookingStatus.CONFIRMED | typeof BookingStatus.REJECTED,
   ): Promise<BookingWithUserName> {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
@@ -175,10 +180,21 @@ export class BookingsService {
         'Only a PENDING_APPROVAL Booking can be approved or rejected',
       );
     }
-    const updated = await this.prisma.booking.update({
-      where: { id },
-      data: { status: outcome },
-      include: { user: { select: { name: true } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.update({
+        where: { id },
+        data: { status: outcome },
+        include: { user: { select: { name: true } } },
+      });
+      await this.audit.record(
+        actorId,
+        AuditAction.BOOKING_APPROVAL,
+        'Booking',
+        id,
+        outcome === BookingStatus.CONFIRMED ? 'Approved' : 'Rejected',
+        tx,
+      );
+      return booking;
     });
     return withUserName(updated);
   }

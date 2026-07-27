@@ -15,7 +15,8 @@ import {
   FileCheck,
   LogOut,
   Menu,
-  ClipboardList
+  ClipboardList,
+  History
 } from 'lucide-react';
 import { Button } from './Button';
 
@@ -103,11 +104,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       icon: <DoorOpen size={20} />, 
       roles: [UserRole.ROOM_MANAGER, UserRole.ADMIN] 
     },
-    { 
-      path: '/admin', 
-      label: '系統設定', 
-      icon: <Settings size={20} />, 
-      roles: [UserRole.ADMIN, UserRole.MAINTENANCE] 
+    {
+      path: '/admin',
+      label: '系統設定',
+      icon: <Settings size={20} />,
+      roles: [UserRole.ADMIN, UserRole.MAINTENANCE]
+    },
+    {
+      path: '/audit-log',
+      label: '稽核紀錄',
+      icon: <History size={20} />,
+      roles: [UserRole.ADMIN]
     },
   ];
 

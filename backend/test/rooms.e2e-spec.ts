@@ -58,6 +58,7 @@ describe('Rooms (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.room.deleteMany({});
     await prisma.account.deleteMany({});
     await prisma.user.deleteMany({});

@@ -60,6 +60,7 @@ describe('Auth (e2e)', () => {
   });
 
   afterEach(async () => {
+    await prisma.auditLogEntry.deleteMany({});
     await prisma.account.deleteMany({});
     await prisma.user.deleteMany({});
   });

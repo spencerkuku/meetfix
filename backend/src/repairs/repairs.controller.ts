@@ -59,7 +59,11 @@ export class RepairsController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles(Role.MAINTENANCE, Role.ADMIN)
-  update(@Param('id') id: string, @Body() body: UpdateRepairTicketDto) {
-    return this.repairsService.updateStatus(id, body);
+  update(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() body: UpdateRepairTicketDto,
+  ) {
+    return this.repairsService.updateStatus(user.id, id, body);
   }
 }

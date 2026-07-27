@@ -37,9 +37,10 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
-  account       Account?
-  bookings      Booking[]
-  repairTickets RepairTicket[]
+  account        Account?
+  bookings       Booking[]
+  repairTickets  RepairTicket[]
+  auditLogEntries AuditLogEntry[]
 }
 
 // Auto-Approved Domain: an email domain an Admin has pre-cleared. A PASSWORD
@@ -148,4 +149,30 @@ model RepairTicket {
   status      RepairStatus @default(PENDING)
   adminReply  String?
   createdAt   DateTime     @default(now())
+}
+
+// Audit Log Entry: an immutable record of who performed a state-changing
+// action, when, and on what — currently scoped to Role changes, Booking
+// Approvals, Account Approvals, and Repair Status changes. See CONTEXT.md.
+// `targetType`/`targetId` deliberately isn't a typed FK — the target can be
+// a User, Booking, Account or RepairTicket, and the log must outlive its
+// target (never cascade-deleted).
+enum AuditAction {
+  ROLE_CHANGE
+  BOOKING_APPROVAL
+  ACCOUNT_APPROVAL
+  REPAIR_STATUS_CHANGE
+}
+
+model AuditLogEntry {
+  id         String      @id @default(cuid())
+  actorId    String
+  actor      User        @relation(fields: [actorId], references: [id])
+  action     AuditAction
+  targetType String
+  targetId   String
+  detail     String?
+  createdAt  DateTime    @default(now())
+
+  @@index([createdAt])
 }

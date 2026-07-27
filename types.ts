@@ -79,4 +79,18 @@ export interface AutoApprovedDomain {
   createdAt: string;
 }
 
+export type AuditAction = 'ROLE_CHANGE' | 'BOOKING_APPROVAL' | 'ACCOUNT_APPROVAL' | 'REPAIR_STATUS_CHANGE';
+
+export interface AuditLogEntry {
+  id: string;
+  actorId: string;
+  actorName: string;
+  actorEmail: string;
+  action: AuditAction;
+  targetType: string;
+  targetId: string;
+  detail?: string;
+  createdAt: string;
+}
+
 export type CalendarViewType = 'MONTH' | 'WEEK' | 'DAY';
