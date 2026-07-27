@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
 import { AppModule } from './app.module';
+import { serveUploads } from './uploads/serve-uploads';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -12,7 +12,7 @@ async function bootstrap() {
   // sensitive data. Filenames are random UUIDs, so this is "unlisted", not
   // enumerable — but it does mean anyone with a URL can view a photo
   // without logging in, unlike every other endpoint in this API.
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
+  serveUploads(app);
   const configService = app.get(ConfigService);
   await app.listen(configService.get('PORT') ?? 3000);
 }

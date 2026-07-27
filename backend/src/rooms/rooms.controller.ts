@@ -21,7 +21,11 @@ import { Role } from '@prisma/client';
 import { RoomsService } from './rooms.service';
 import { parseRoomForm, RoomInput } from './room-form.dto';
 import type { RoomFormBody } from './room-form.dto';
-import { roomPhotoUploadOptions, roomPhotoUrl } from './room-upload.config';
+import {
+  persistRoomPhoto,
+  roomPhotoUploadOptions,
+  roomPhotoUrl,
+} from './room-upload.config';
 
 @Controller('rooms')
 @UseGuards(JwtAuthGuard)
@@ -37,7 +41,7 @@ export class RoomsController {
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('photo', roomPhotoUploadOptions))
-  create(
+  async create(
     @Body() body: RoomFormBody,
     @UploadedFile() photo: Express.Multer.File,
   ) {
@@ -48,6 +52,7 @@ export class RoomsController {
     if (!photo) {
       throw new BadRequestException('A room photo is required');
     }
+    const filename = await persistRoomPhoto(photo);
     return this.roomsService.create(
       {
         name: input.name,
@@ -55,7 +60,7 @@ export class RoomsController {
         equipment: input.equipment ?? [],
         requiresApproval: input.requiresApproval ?? false,
       } satisfies RoomInput,
-      roomPhotoUrl(photo.filename),
+      roomPhotoUrl(filename),
     );
   }
 
@@ -63,16 +68,17 @@ export class RoomsController {
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('photo', roomPhotoUploadOptions))
-  update(
+  async update(
     @Param('id') id: string,
     @Body() body: RoomFormBody,
     @UploadedFile() photo?: Express.Multer.File,
   ) {
     const input = parseRoomForm(body);
+    const filename = photo ? await persistRoomPhoto(photo) : undefined;
     return this.roomsService.update(
       id,
       input,
-      photo ? roomPhotoUrl(photo.filename) : undefined,
+      filename ? roomPhotoUrl(filename) : undefined,
     );
   }
 

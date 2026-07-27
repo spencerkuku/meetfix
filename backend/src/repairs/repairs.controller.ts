@@ -21,6 +21,7 @@ import { RepairsService } from './repairs.service';
 import type { RepairTicketFormBody } from './repair-ticket-form.dto';
 import type { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import {
+  persistRepairPhoto,
   repairPhotoUploadOptions,
   repairPhotoUrl,
 } from './repair-upload.config';
@@ -37,11 +38,12 @@ export class RepairsController {
 
   @Post()
   @UseInterceptors(FileInterceptor('photo', repairPhotoUploadOptions))
-  create(
+  async create(
     @CurrentUser() user: User,
     @Body() body: RepairTicketFormBody,
     @UploadedFile() photo?: Express.Multer.File,
   ) {
+    const filename = photo ? await persistRepairPhoto(photo) : undefined;
     return this.repairsService.create(
       user.id,
       {
@@ -52,7 +54,7 @@ export class RepairsController {
         userClass: body.userClass,
         userPhone: body.userPhone,
       },
-      photo ? repairPhotoUrl(photo.filename) : undefined,
+      filename ? repairPhotoUrl(filename) : undefined,
     );
   }
 

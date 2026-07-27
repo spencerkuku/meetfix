@@ -6,7 +6,15 @@ import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { serveUploads } from './../src/uploads/serve-uploads';
 import { Role } from '@prisma/client';
+
+// Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
+// validated by content, not by client-declared mimetype or filename.
+const PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 interface RoomResponse {
   id: string;
@@ -46,9 +54,7 @@ describe('Rooms (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
-    app.useStaticAssets(join(process.cwd(), 'uploads'), {
-      prefix: '/uploads',
-    });
+    serveUploads(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -86,7 +92,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .field('name', 'A101')
       .field('capacity', '10')
-      .attach('photo', Buffer.from('fake-image-bytes'), 'room.png')
+      .attach('photo', PNG_BYTES, 'room.png')
       .expect(403);
   });
 
@@ -96,7 +102,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Update-Auth-Check')
       .field('capacity', '5')
-      .attach('photo', Buffer.from('x'), 'x.png')
+      .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
     createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
@@ -114,7 +120,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Delete-Auth-Check')
       .field('capacity', '5')
-      .attach('photo', Buffer.from('x'), 'x.png')
+      .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
     createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
@@ -131,7 +137,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Bad Capacity')
       .field('capacity', '0')
-      .attach('photo', Buffer.from('x'), 'x.png')
+      .attach('photo', PNG_BYTES, 'x.png')
       .expect(400);
   });
 
@@ -143,7 +149,7 @@ describe('Rooms (e2e)', () => {
       .field('capacity', '10')
       .field('equipment', '投影機, 白板')
       .field('requiresApproval', 'false')
-      .attach('photo', Buffer.from('fake-image-bytes'), 'room.png')
+      .attach('photo', PNG_BYTES, 'room.png')
       .expect(201);
 
     const body = res.body as RoomResponse;
@@ -159,7 +165,7 @@ describe('Rooms (e2e)', () => {
     const photoRes = await request(app.getHttpServer())
       .get(body.imageUrl)
       .expect(200);
-    expect(photoRes.body).toEqual(Buffer.from('fake-image-bytes'));
+    expect(photoRes.body).toEqual(PNG_BYTES);
   });
 
   it('Admin can update a Room without replacing the photo', async () => {
@@ -168,7 +174,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'B202')
       .field('capacity', '4')
-      .attach('photo', Buffer.from('original'), 'b202.png')
+      .attach('photo', PNG_BYTES, 'b202.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
     createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
@@ -190,7 +196,7 @@ describe('Rooms (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'To Delete')
       .field('capacity', '2')
-      .attach('photo', Buffer.from('x'), 'x.png')
+      .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
     createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
@@ -206,5 +212,51 @@ describe('Rooms (e2e)', () => {
       .expect(200);
     const listBody = list.body as RoomResponse[];
     expect(listBody.find((r) => r.id === createdBody.id)).toBeUndefined();
+  });
+
+  it('rejects a photo upload whose content is not a real image, regardless of declared filename/mimetype', () => {
+    return request(app.getHttpServer())
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'Fake Photo Room')
+      .field('capacity', '10')
+      .attach('photo', Buffer.from('not-a-real-image'), {
+        filename: 'room.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+  });
+
+  it('rejects an SVG upload masquerading as a photo (stored XSS vector)', () => {
+    const svgPayload = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    );
+    return request(app.getHttpServer())
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'SVG XSS Room')
+      .field('capacity', '10')
+      .attach('photo', svgPayload, {
+        filename: 'x.svg',
+        contentType: 'image/svg+xml',
+      })
+      .expect(400);
+  });
+
+  it('serves uploaded photos with X-Content-Type-Options: nosniff', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'Nosniff Check')
+      .field('capacity', '3')
+      .attach('photo', PNG_BYTES, 'room.png')
+      .expect(201);
+    const createdBody = created.body as RoomResponse;
+    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+
+    const photoRes = await request(app.getHttpServer())
+      .get(createdBody.imageUrl)
+      .expect(200);
+    expect(photoRes.headers['x-content-type-options']).toBe('nosniff');
   });
 });
