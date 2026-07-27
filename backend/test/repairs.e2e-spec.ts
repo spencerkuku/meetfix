@@ -26,6 +26,9 @@ interface RepairTicketResponse {
   imageUrl: string | null;
   status: string;
   userName: string;
+  userId: string;
+  userPhone: string | null;
+  userClass: string | null;
 }
 
 interface RepairCategoryResponse {
@@ -38,6 +41,7 @@ describe('Repairs (e2e)', () => {
   let authService: AuthService;
   let prisma: PrismaService;
   let userToken: string;
+  let otherUserToken: string;
   let adminToken: string;
   let maintenanceToken: string;
   let roomId: string;
@@ -76,6 +80,7 @@ describe('Repairs (e2e)', () => {
     await app.init();
 
     userToken = await tokenFor('reporter@school.edu.tw', Role.USER);
+    otherUserToken = await tokenFor('bystander@school.edu.tw', Role.USER);
     adminToken = await tokenFor('repairadmin@school.edu.tw', Role.ADMIN);
     maintenanceToken = await tokenFor('repairmaint@school.edu.tw', Role.MAINTENANCE);
 
@@ -150,6 +155,61 @@ describe('Repairs (e2e)', () => {
       .expect(200);
     expect(photoRes.body).toEqual(PNG_BYTES);
     expect(photoRes.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it("hides a reporter's phone/class and masks their name from other USER-role callers", async () => {
+    const created = await request(app.getHttpServer())
+      .post('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .field('location', 'PII 過濾測試')
+      .field('category', '桌椅家具')
+      .field('description', '個資過濾測試單')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '0912-345-678')
+      .expect(201);
+    const createdBody = created.body as RepairTicketResponse;
+
+    const asOtherUser = await request(app.getHttpServer())
+      .get('/repairs')
+      .set('Authorization', `Bearer ${otherUserToken}`)
+      .expect(200);
+    const seenByOtherUser = (asOtherUser.body as RepairTicketResponse[]).find(
+      (t) => t.id === createdBody.id,
+    );
+    expect(seenByOtherUser?.userPhone).toBeNull();
+    expect(seenByOtherUser?.userClass).toBeNull();
+    expect(seenByOtherUser?.userName).not.toBe(createdBody.userName);
+
+    const asOwner = await request(app.getHttpServer())
+      .get('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    const seenByOwner = (asOwner.body as RepairTicketResponse[]).find(
+      (t) => t.id === createdBody.id,
+    );
+    expect(seenByOwner?.userPhone).toBe('0912-345-678');
+    expect(seenByOwner?.userClass).toBe('資訊三甲');
+    expect(seenByOwner?.userName).toBe(createdBody.userName);
+
+    const asAdmin = await request(app.getHttpServer())
+      .get('/repairs')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const seenByAdmin = (asAdmin.body as RepairTicketResponse[]).find(
+      (t) => t.id === createdBody.id,
+    );
+    expect(seenByAdmin?.userPhone).toBe('0912-345-678');
+    expect(seenByAdmin?.userClass).toBe('資訊三甲');
+
+    const asMaintenance = await request(app.getHttpServer())
+      .get('/repairs')
+      .set('Authorization', `Bearer ${maintenanceToken}`)
+      .expect(200);
+    const seenByMaintenance = (
+      asMaintenance.body as RepairTicketResponse[]
+    ).find((t) => t.id === createdBody.id);
+    expect(seenByMaintenance?.userPhone).toBe('0912-345-678');
+    expect(seenByMaintenance?.userClass).toBe('資訊三甲');
   });
 
   it('rejects an SVG upload masquerading as a photo (stored XSS vector)', () => {

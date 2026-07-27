@@ -32,8 +32,8 @@ export class RepairsController {
   constructor(private readonly repairsService: RepairsService) {}
 
   @Get()
-  findAll() {
-    return this.repairsService.findAll();
+  findAll(@CurrentUser() user: User) {
+    return this.repairsService.findAll(user.id, user.role);
   }
 
   @Post()

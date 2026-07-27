@@ -9,6 +9,7 @@ import {
   Prisma,
   RepairStatus,
   RepairTicket,
+  Role,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -16,6 +17,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import { withUserName } from '../common/with-user-name';
+import { maskName } from '../common/mask-name';
 
 // Repair Status only ever advances forward — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`
@@ -36,12 +38,28 @@ export class RepairsService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async findAll(): Promise<RepairTicketWithUserName[]> {
+  async findAll(
+    callerId: string,
+    callerRole: Role,
+  ): Promise<RepairTicketWithUserName[]> {
     const tickets = await this.prisma.repairTicket.findMany({
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { name: true } } },
     });
-    return tickets.map(withUserName);
+    const privileged =
+      callerRole === Role.ADMIN || callerRole === Role.MAINTENANCE;
+    return tickets.map((ticket) => {
+      const withName = withUserName(ticket);
+      if (privileged || ticket.userId === callerId) {
+        return withName;
+      }
+      return {
+        ...withName,
+        userPhone: null,
+        userClass: null,
+        userName: maskName(withName.userName),
+      };
+    });
   }
 
   async create(
