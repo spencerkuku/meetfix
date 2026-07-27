@@ -1,0 +1,63 @@
+import { User } from '../types';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const TOKEN_KEY = 'meetfix_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export function googleLoginUrl(): string {
+  return `${API_URL}/auth/google`;
+}
+
+// Exchanges the one-time code from the /auth/google/callback redirect for a
+// real session token — the JWT itself never appears in a URL this way.
+export async function exchangeLoginCode(code: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_URL}/auth/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) return null;
+    const data: { accessToken: string } = await res.json();
+    return data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
+interface MeResponse {
+  id: string;
+  email: string;
+  name: string;
+  role: User['role'];
+}
+
+export async function fetchCurrentUser(token: string): Promise<User | null> {
+  try {
+    const res = await fetch(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data: MeResponse = await res.json();
+    return {
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      avatar: `https://i.pravatar.cc/150?u=${data.id}`,
+    };
+  } catch {
+    return null;
+  }
+}

@@ -6,3 +6,53 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// Role: one of four fixed permission levels a User holds. Never combined.
+// See CONTEXT.md.
+enum Role {
+  USER
+  MAINTENANCE
+  ROOM_MANAGER
+  ADMIN
+}
+
+// Account: the credential record backing a User's ability to log in.
+// One Account per User. See CONTEXT.md.
+enum AccountProvider {
+  GOOGLE
+  PASSWORD
+}
+
+// Account Status: only meaningful for PASSWORD accounts — GOOGLE accounts
+// are always immediately usable. See CONTEXT.md.
+enum AccountStatus {
+  PENDING
+  ACTIVE
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  account Account?
+}
+
+model Account {
+  id       String          @id @default(cuid())
+  userId   String          @unique
+  user     User            @relation(fields: [userId], references: [id])
+  provider AccountProvider
+  status   AccountStatus   @default(ACTIVE)
+
+  // GOOGLE provider fields
+  googleSub          String? @unique
+  googleRefreshToken String?
+
+  // PASSWORD provider fields (populated by a later ticket)
+  passwordHash String?
+
+  createdAt DateTime @default(now())
+}

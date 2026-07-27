@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { User, Room, Booking, RepairTicket, UserRole, RepairStatus, DEFAULT_REPAIR_CATEGORIES } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
+import { AuthCallback } from './pages/AuthCallback';
 import { Bookings } from './pages/Bookings';
 import { Repairs } from './pages/Repairs';
 import { RepairManagement } from './pages/RepairManagement';
@@ -12,6 +13,7 @@ import { Admin } from './pages/Admin';
 import { RoomManagement } from './pages/RoomManagement';
 import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
+import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -68,7 +70,9 @@ interface DataContextType {
   bookings: Booking[];
   repairs: RepairTicket[];
   repairCategories: string[];
-  login: (role: UserRole) => void;
+  authLoading: boolean;
+  loginWithGoogle: () => void;
+  completeGoogleLogin: (code: string) => Promise<void>;
   logout: () => void;
   addBooking: (booking: Booking) => void;
   updateBooking: (id: string, updates: Partial<Booking>) => void;
@@ -94,18 +98,42 @@ export const useData = () => {
 
 const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [mockUsers, setMockUsers] = useState<User[]>(MOCK_USERS);
   const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
   const [repairs, setRepairs] = useState<RepairTicket[]>(INITIAL_REPAIRS);
   const [rooms, setRooms] = useState<Room[]>(MOCK_ROOMS);
   const [repairCategories, setRepairCategories] = useState<string[]>(DEFAULT_REPAIR_CATEGORIES);
 
-  const login = (role: UserRole) => {
-    const user = mockUsers.find(u => u.role === role) || MOCK_USERS[0];
-    setCurrentUser({ ...user, role }); 
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+    fetchCurrentUser(token).then(user => {
+      if (!user) clearToken();
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+  }, []);
+
+  const loginWithGoogle = () => {
+    window.location.href = googleLoginUrl();
   };
 
-  const logout = () => setCurrentUser(null);
+  const completeGoogleLogin = async (code: string) => {
+    const token = await exchangeLoginCode(code);
+    if (!token) return;
+    setToken(token);
+    const user = await fetchCurrentUser(token);
+    setCurrentUser(user);
+  };
+
+  const logout = () => {
+    clearToken();
+    setCurrentUser(null);
+  };
 
   const addBooking = (booking: Booking) => setBookings(prev => [...prev, booking]);
   
@@ -157,9 +185,9 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   };
 
   return (
-    <DataContext.Provider value={{ 
-      currentUser, mockUsers, rooms, bookings, repairs, repairCategories,
-      login, logout, addBooking, updateBooking, removeBooking, 
+    <DataContext.Provider value={{
+      currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
+      loginWithGoogle, completeGoogleLogin, logout, addBooking, updateBooking, removeBooking,
       addRepair, updateRepair, updateMockRole, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom
     }}>
@@ -175,6 +203,7 @@ export const App: React.FC = () => {
         <HashRouter>
           <Routes>
             <Route path="/" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/*" element={
               <Layout>
                 <Routes>

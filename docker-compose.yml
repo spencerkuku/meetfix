@@ -20,6 +20,13 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-meetfix}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meetfix}?schema=public
       PORT: 3000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
+      SCHOOL_GOOGLE_DOMAIN: ${SCHOOL_GOOGLE_DOMAIN}
+      FRONTEND_URL: ${FRONTEND_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     depends_on:
       postgres:
         condition: service_healthy
