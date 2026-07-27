@@ -6,6 +6,7 @@ import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { NotificationsService } from './../src/notifications/notifications.service';
 import { Role } from '@prisma/client';
 
 interface RepairTicketResponse {
@@ -33,6 +34,9 @@ describe('Repairs (e2e)', () => {
   let maintenanceToken: string;
   let roomId: string;
   const createdUploadPaths: string[] = [];
+  // See bookings.e2e-spec.ts for why NotificationsService is mocked at the
+  // SMTP-send boundary rather than not exercised at all.
+  const notifications = { notifyRepairUpdate: jest.fn() };
 
   async function tokenFor(email: string, role: Role): Promise<string> {
     const { user } = await authService.loginWithGoogle({
@@ -52,7 +56,10 @@ describe('Repairs (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(NotificationsService)
+      .useValue(notifications)
+      .compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
     app.useStaticAssets(join(process.cwd(), 'uploads'), {
@@ -76,6 +83,10 @@ describe('Repairs (e2e)', () => {
       },
     });
     roomId = room.id;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
   afterAll(async () => {
@@ -276,6 +287,28 @@ describe('Repairs (e2e)', () => {
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(404);
+    });
+
+    it('notifies the reporting User on a status change (#10)', async () => {
+      const id = await createTicket();
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      expect(notifications.notifyRepairUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('notifies the reporting User on a reply-only update (#10)', async () => {
+      const id = await createTicket();
+      await request(app.getHttpServer())
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ adminReply: '正在調度零件' })
+        .expect(200);
+
+      expect(notifications.notifyRepairUpdate).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -7,6 +7,7 @@ import {
 import { AuditAction, Prisma, RepairStatus, RepairTicket } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 
@@ -33,6 +34,7 @@ export class RepairsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findAll(): Promise<RepairTicketWithUserName[]> {
@@ -111,7 +113,7 @@ export class RepairsService {
       const ticket = await tx.repairTicket.update({
         where: { id },
         data,
-        include: { user: { select: { name: true } } },
+        include: { user: true },
       });
       if (updates.status !== undefined) {
         await this.audit.record(
@@ -125,6 +127,7 @@ export class RepairsService {
       }
       return ticket;
     });
+    await this.notifications.notifyRepairUpdate(updated, updated.user, updates);
     return withUserName(updated);
   }
 

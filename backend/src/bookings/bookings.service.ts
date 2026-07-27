@@ -8,6 +8,7 @@ import {
 import { AuditAction, Booking, BookingStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateBookingDto } from './create-booking.dto';
 
 const ACTIVE_STATUSES: BookingStatus[] = [
@@ -29,6 +30,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findAll(): Promise<BookingWithUserName[]> {
@@ -104,6 +106,20 @@ export class BookingsService {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+      if (created.status === BookingStatus.PENDING_APPROVAL) {
+        // No Room has a specific assigned manager (see CONTEXT.md's
+        // ROOM_MANAGER definition — it's a role, not a per-Room
+        // assignment), so every ROOM_MANAGER is notified of every
+        // approval-required Booking, not just "their" Room's.
+        const roomManagers = await this.prisma.user.findMany({
+          where: { role: Role.ROOM_MANAGER },
+        });
+        await this.notifications.notifyBookingSubmittedForApproval(
+          created,
+          room,
+          roomManagers,
+        );
+      }
       return withUserName(created);
     } catch (err) {
       // Postgres detects the write skew between two concurrent conflict
@@ -151,9 +167,16 @@ export class BookingsService {
     const updated = await this.prisma.booking.update({
       where: { id },
       data: { status: BookingStatus.CANCELLED },
-      include: { user: { select: { name: true } } },
+      include: { user: true, room: true },
     });
-    return withUserName(updated);
+    await this.notifications.notifyBookingCancelled(
+      updated,
+      updated.room,
+      updated.user,
+      userId,
+    );
+    const { room: _room, ...bookingWithUser } = updated;
+    return withUserName(bookingWithUser);
   }
 
   // Booking Approval: a ROOM_MANAGER (or ADMIN) deciding a PENDING_APPROVAL
@@ -184,7 +207,7 @@ export class BookingsService {
       const booking = await tx.booking.update({
         where: { id },
         data: { status: outcome },
-        include: { user: { select: { name: true } } },
+        include: { user: true, room: true },
       });
       await this.audit.record(
         actorId,
@@ -196,6 +219,12 @@ export class BookingsService {
       );
       return booking;
     });
-    return withUserName(updated);
+    await this.notifications.notifyBookingDecision(
+      updated,
+      updated.room,
+      updated.user,
+    );
+    const { room: _room, ...bookingWithUser } = updated;
+    return withUserName(bookingWithUser);
   }
 }

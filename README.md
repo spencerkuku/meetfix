@@ -41,8 +41,13 @@ Set in `.env` at the repo root (see `.env.example`):
 | `JWT_SECRET` | Signs session tokens — generate with `openssl rand -hex 32`. |
 | `ENCRYPTION_KEY` | 32-byte hex key that encrypts stored Google refresh tokens at rest — generate with `openssl rand -hex 32`. |
 | `BACKUP_RETENTION_DAYS` | How many days of database backups the `backup` service keeps before deleting old ones. Optional, defaults to `14`. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | SMTP server for transactional email notifications (booking approvals, repair status updates, etc. — see below). All optional; leave `SMTP_HOST` blank to disable email sending entirely. |
 
 Uploaded files (room and repair-ticket photos) live on a Docker volume (`uploads`) mounted into the API container at `/app/uploads`, served back out at `/uploads/*` via Caddy — see ADR-0004.
+
+### Email notifications
+
+The API sends transactional email on four domain events: a Booking submitted for approval (to the Room Manager(s)), a Booking Approval decision (to the requester), a Booking cancelled by someone other than the requester (to the requester), and a Repair Ticket status change or new reply (to the reporting User). Configure SMTP via the `SMTP_*` env vars above; with `SMTP_HOST` unset, sending is skipped (logged at debug level) — the rest of the app works normally without it.
 
 ### Backups & restore
 

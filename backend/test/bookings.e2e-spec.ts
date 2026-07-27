@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { NotificationsService } from './../src/notifications/notifications.service';
 import { Role } from '@prisma/client';
 
 interface BookingResponse {
@@ -28,6 +29,15 @@ describe('Bookings (e2e)', () => {
   let maintenanceToken: string;
   let openRoomId: string;
   let approvalRoomId: string;
+  // The wiring to NotificationsService is exercised for real here (mocked
+  // only at the SMTP-send boundary) so we assert it fires with the right
+  // decision outcome — see notification-decisions.spec.ts for the pure
+  // decision logic itself, unit-tested independent of this wiring.
+  const notifications = {
+    notifyBookingSubmittedForApproval: jest.fn(),
+    notifyBookingDecision: jest.fn(),
+    notifyBookingCancelled: jest.fn(),
+  };
 
   async function tokenFor(
     email: string,
@@ -65,7 +75,10 @@ describe('Bookings (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(NotificationsService)
+      .useValue(notifications)
+      .compile();
 
     app = moduleFixture.createNestApplication();
     authService = moduleFixture.get(AuthService);
@@ -108,6 +121,10 @@ describe('Bookings (e2e)', () => {
       },
     });
     approvalRoomId = approvalRoom.id;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
   afterAll(async () => {
@@ -388,6 +405,88 @@ describe('Bookings (e2e)', () => {
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(400);
+    });
+  });
+
+  describe('Notifications wiring (#10)', () => {
+    it('notifies Room Manager(s) when a Booking is submitted for approval', async () => {
+      const slot = nextSlot();
+      await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Notify submit', ...slot })
+        .expect(201);
+
+      expect(notifications.notifyBookingSubmittedForApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify Room Manager(s) for an auto-confirmed Booking', async () => {
+      const slot = nextSlot();
+      await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'No approval needed', ...slot })
+        .expect(201);
+
+      expect(notifications.notifyBookingSubmittedForApproval).not.toHaveBeenCalled();
+    });
+
+    it('notifies the requester of a Booking Approval decision', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Notify decision', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+
+      expect(notifications.notifyBookingDecision).toHaveBeenCalledTimes(1);
+    });
+
+    it('notifies the requester when someone else cancels their Booking', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Cancelled by admin', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/cancel`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(notifications.notifyBookingCancelled).toHaveBeenCalledTimes(1);
+    });
+
+    it('still calls the cancel-notification hook when the requester cancels their own Booking (decision logic then suppresses it)', async () => {
+      const slot = nextSlot();
+      const created = await request(app.getHttpServer())
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Self-cancelled', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await request(app.getHttpServer())
+        .patch(`/bookings/${id}/cancel`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(notifications.notifyBookingCancelled).toHaveBeenCalledTimes(1);
+      const [, , , cancelledByUserId] = notifications.notifyBookingCancelled.mock.calls[0] as [
+        unknown,
+        unknown,
+        unknown,
+        string,
+      ];
+      expect(cancelledByUserId).toBe(userId);
     });
   });
 });
