@@ -27,6 +27,8 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,3 +52,4 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  uploads:

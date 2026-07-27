@@ -14,6 +14,7 @@ import { RoomManagement } from './pages/RoomManagement';
 import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
+import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -21,12 +22,6 @@ const MOCK_USERS: User[] = [
   { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatar: 'https://i.pravatar.cc/150?u=b', phone: '0922-333-444' },
   { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatar: 'https://i.pravatar.cc/150?u=c' },
   { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatar: 'https://i.pravatar.cc/150?u=d' },
-];
-
-const MOCK_ROOMS: Room[] = [
-  { id: 'r1', name: 'A101 會議室', capacity: 10, equipment: ['投影機', '白板'], imageUrl: 'https://picsum.photos/800/400?random=1', requiresApproval: false },
-  { id: 'r2', name: 'B202 討論室', capacity: 4, equipment: ['電視螢幕'], imageUrl: 'https://picsum.photos/800/400?random=2', requiresApproval: true },
-  { id: 'r3', name: 'C303 董事會議廳', capacity: 20, equipment: ['視訊設備', '投影機', '咖啡機'], imageUrl: 'https://picsum.photos/800/400?random=3', requiresApproval: true },
 ];
 
 const INITIAL_BOOKINGS: Booking[] = [
@@ -83,9 +78,9 @@ interface DataContextType {
   updateUser: (userId: string, data: Partial<User>) => void;
   addRepairCategory: (category: string) => void;
   removeRepairCategory: (category: string) => void;
-  addRoom: (room: Room) => void;
-  updateRoom: (id: string, updates: Partial<Room>) => void;
-  removeRoom: (id: string) => void;
+  addRoom: (input: RoomFormInput, photo: File) => Promise<void>;
+  updateRoom: (id: string, input: Partial<RoomFormInput>, photo?: File) => Promise<void>;
+  removeRoom: (id: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -102,7 +97,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [mockUsers, setMockUsers] = useState<User[]>(MOCK_USERS);
   const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
   const [repairs, setRepairs] = useState<RepairTicket[]>(INITIAL_REPAIRS);
-  const [rooms, setRooms] = useState<Room[]>(MOCK_ROOMS);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [repairCategories, setRepairCategories] = useState<string[]>(DEFAULT_REPAIR_CATEGORIES);
 
   useEffect(() => {
@@ -117,6 +112,14 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setAuthLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setRooms([]);
+      return;
+    }
+    fetchRooms().then(setRooms).catch(() => setRooms([]));
+  }, [currentUser]);
 
   const loginWithGoogle = () => {
     window.location.href = googleLoginUrl();
@@ -172,15 +175,18 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setRepairCategories(prev => prev.filter(c => c !== category));
   };
 
-  const addRoom = (room: Room) => {
+  const addRoom = async (input: RoomFormInput, photo: File) => {
+    const room = await createRoom(input, photo);
     setRooms(prev => [...prev, room]);
   };
 
-  const updateRoom = (id: string, updates: Partial<Room>) => {
-    setRooms(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  const updateRoom = async (id: string, input: Partial<RoomFormInput>, photo?: File) => {
+    const room = await updateRoomApi(id, input, photo);
+    setRooms(prev => prev.map(r => r.id === id ? room : r));
   };
 
-  const removeRoom = (id: string) => {
+  const removeRoom = async (id: string) => {
+    await deleteRoomApi(id);
     setRooms(prev => prev.filter(r => r.id !== id));
   };
 

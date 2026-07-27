@@ -8,15 +8,17 @@ import { Room } from '../types';
 
 export const RoomManagement: React.FC = () => {
   const { rooms, addRoom, updateRoom, removeRoom } = useData();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
-  
+  const [submitting, setSubmitting] = useState(false);
+
   // Form State
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [capacity, setCapacity] = useState(10);
   const [equipment, setEquipment] = useState('');
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [requiresApproval, setRequiresApproval] = useState(false);
 
   const resetForm = () => {
@@ -25,6 +27,7 @@ export const RoomManagement: React.FC = () => {
     setCapacity(10);
     setEquipment('');
     setImagePreview('');
+    setPhotoFile(null);
     setRequiresApproval(false);
   };
 
@@ -34,6 +37,7 @@ export const RoomManagement: React.FC = () => {
     setCapacity(room.capacity);
     setEquipment(room.equipment.join(', '));
     setImagePreview(room.imageUrl);
+    setPhotoFile(null);
     setRequiresApproval(room.requiresApproval);
     setShowModal(true);
   };
@@ -41,6 +45,7 @@ export const RoomManagement: React.FC = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setPhotoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -49,42 +54,41 @@ export const RoomManagement: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const equipmentList = equipment.split(',').map(s => s.trim()).filter(Boolean);
-    const imageUrlToUse = imagePreview || `https://picsum.photos/800/400?random=${Date.now()}`;
 
-    if (editingRoomId) {
-        updateRoom(editingRoomId, {
-            name,
-            capacity,
-            equipment: equipmentList,
-            imageUrl: imageUrlToUse,
-            requiresApproval
-        });
+    setSubmitting(true);
+    try {
+      if (editingRoomId) {
+        await updateRoom(editingRoomId, { name, capacity, equipment: equipmentList, requiresApproval }, photoFile ?? undefined);
         success("會議室資料更新成功");
-    } else {
-        const newRoom: Room = {
-            id: crypto.randomUUID(),
-            name,
-            capacity,
-            equipment: equipmentList,
-            imageUrl: imageUrlToUse,
-            requiresApproval
-        };
-        addRoom(newRoom);
+      } else {
+        if (!photoFile) {
+          error("請上傳會議室照片");
+          return;
+        }
+        await addRoom({ name, capacity, equipment: equipmentList, requiresApproval }, photoFile);
         success("已新增會議室");
+      }
+      setShowModal(false);
+      resetForm();
+    } catch {
+      error("操作失敗,請稍後再試");
+    } finally {
+      setSubmitting(false);
     }
-
-    setShowModal(false);
-    resetForm();
   };
 
-  const handleDeleteRoom = (id: string, name: string) => {
+  const handleDeleteRoom = async (id: string, name: string) => {
     if (window.confirm(`確定要刪除「${name}」嗎？此動作無法復原。`)) {
-      removeRoom(id);
-      success("會議室已刪除");
+      try {
+        await removeRoom(id);
+        success("會議室已刪除");
+      } catch {
+        error("刪除失敗,請稍後再試");
+      }
     }
   };
 
@@ -244,7 +248,7 @@ export const RoomManagement: React.FC = () => {
 
               <div className="pt-4 flex justify-end gap-3 border-t mt-2">
                 <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>取消</Button>
-                <Button type="submit">{editingRoomId ? '更新設定' : '確認新增'}</Button>
+                <Button type="submit" disabled={submitting} isLoading={submitting}>{editingRoomId ? '更新設定' : '確認新增'}</Button>
               </div>
             </form>
           </div>

@@ -5,3 +5,9 @@ coverage
 .env
 
 /generated/prisma
+
+# Uploaded files are runtime data (mounted as a Docker volume in production),
+# not source — keep the directory structure via .gitkeep, ignore the content.
+uploads/**
+!uploads/**/
+!uploads/**/.gitkeep

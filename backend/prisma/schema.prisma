@@ -56,3 +56,14 @@ model Account {
 
   createdAt DateTime @default(now())
 }
+
+// Room: a physical bookable space. See CONTEXT.md.
+model Room {
+  id               String   @id @default(cuid())
+  name             String
+  capacity         Int
+  equipment        String[]
+  imageUrl         String
+  requiresApproval Boolean  @default(false)
+  createdAt        DateTime @default(now())
+}
