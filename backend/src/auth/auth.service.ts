@@ -25,6 +25,12 @@ const LOGIN_CODE_TTL_MS = 60_000;
 const PASSWORD_HASH_ROUNDS = 10;
 const MIN_PASSWORD_LENGTH = 8;
 const GOOGLE_LINK_STATE_PURPOSE = 'google-account-link';
+// A valid bcrypt hash of an arbitrary, unused password — never matches a
+// real login attempt, and exists solely so loginWithPassword always pays
+// bcrypt's cost, whether or not the requested email has an Account. See
+// where it's used for why.
+const DUMMY_PASSWORD_HASH =
+  '$2a$10$CwTycUXWue0Thq9StjUM0uJ8g8vHU8WPPRZuJdSp1Nz1cCf/aG7QW';
 
 @Injectable()
 export class AuthService {
@@ -279,10 +285,20 @@ export class AuthService {
       include: { account: true },
     });
     const account = user?.account;
+    // Always run bcrypt.compare, even against a fixed dummy hash when no
+    // matching password Account exists, so response timing never reveals
+    // whether a given email is registered — a short-circuit here would skip
+    // bcrypt's ~50-100ms cost only for nonexistent accounts, a measurable
+    // signal for user enumeration.
+    const hashToCompareAgainst = account?.passwordHash ?? DUMMY_PASSWORD_HASH;
+    const bcryptMatched = await bcrypt.compare(
+      dto.password,
+      hashToCompareAgainst,
+    );
     const valid =
       !!account?.passwordHash &&
       account.provider === AccountProvider.PASSWORD &&
-      (await bcrypt.compare(dto.password, account.passwordHash));
+      bcryptMatched;
     if (!user || !account || !valid) {
       throw new UnauthorizedException('Invalid email or password');
     }
