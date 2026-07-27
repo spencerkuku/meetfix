@@ -1,15 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  CanActivate,
   ConflictException,
   INestApplication,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { GoogleProfile } from './../src/auth/google-profile.interface';
+
+// Every test in this file but the dedicated "Rate limiting" block below
+// calls /auth/login or /auth/register many times in quick succession — far
+// more than the real 5-req/60s throttle allows. Stub the guard out for this
+// shared app instance so those tests exercise their own concerns, not the
+// throttle; the dedicated block below builds its own app instance with the
+// real ThrottlerGuard to test throttling itself.
+const permissiveThrottlerGuard: CanActivate = { canActivate: () => true };
 
 // The full browser-redirect OAuth handshake can't be exercised without real
 // Google credentials, so this seam is adapted: AuthService.loginWithGoogle
@@ -55,7 +65,10 @@ describe('Auth (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue(permissiveThrottlerGuard)
+      .compile();
 
     app = moduleFixture.createNestApplication();
     authService = moduleFixture.get(AuthService);
@@ -450,5 +463,82 @@ describe('Auth (e2e)', () => {
         })
         .expect(400);
     });
+  });
+});
+
+// A fresh app instance per test, each with its own in-memory
+// ThrottlerStorage, so one test's requests never count toward another
+// test's budget — and with the real ThrottlerGuard (not stubbed out, as it
+// is for every other test in this file), so the actual 5-req/60s limit on
+// /auth/login and /auth/register can be exercised directly.
+describe('Auth rate limiting (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    prisma = moduleFixture.get(PrismaService);
+    await app.init();
+
+    await prisma.autoApprovedDomain.upsert({
+      where: { domain: 'school.edu.tw' },
+      create: { domain: 'school.edu.tw' },
+      update: {},
+    });
+  });
+
+  afterEach(async () => {
+    await prisma.account.deleteMany({});
+    await prisma.user.deleteMany({});
+    await app.close();
+  });
+
+  it('rejects the 6th /auth/login attempt within 60s from the same source with 429', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        email: 'throttle-login@school.edu.tw',
+        name: '節流測試',
+        password: 'password123',
+      })
+      .expect(201);
+
+    for (let i = 0; i < 5; i++) {
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'throttle-login@school.edu.tw', password: 'wrong' })
+        .expect(401);
+    }
+
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'throttle-login@school.edu.tw', password: 'wrong' })
+      .expect(429);
+  });
+
+  it('rejects the 6th /auth/register attempt within 60s from the same source with 429', async () => {
+    for (let i = 0; i < 5; i++) {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: `throttle-register-${i}@school.edu.tw`,
+          name: '節流測試',
+          password: 'password123',
+        })
+        .expect(201);
+    }
+
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        email: 'throttle-register-overflow@school.edu.tw',
+        name: '節流測試',
+        password: 'password123',
+      })
+      .expect(429);
   });
 });

@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { User } from '@prisma/client';
@@ -82,12 +83,17 @@ export class AuthController {
     return this.authService.exchangeLoginCode(body.code);
   }
 
+  // Rate limited: credential stuffing / brute force against these two
+  // endpoints was previously unbounded at every layer. See app.module.ts's
+  // ThrottlerModule.forRoot for the shared limit (5 requests/60s/IP).
   @Post('register')
+  @UseGuards(ThrottlerGuard)
   register(@Body() body: RegisterWithPasswordDto) {
     return this.authService.registerWithPassword(body);
   }
 
   @Post('login')
+  @UseGuards(ThrottlerGuard)
   login(@Body() body: LoginWithPasswordDto) {
     return this.authService.loginWithPassword(body);
   }
