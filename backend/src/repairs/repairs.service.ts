@@ -4,12 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditAction, Prisma, RepairStatus, RepairTicket } from '@prisma/client';
+import {
+  AuditAction,
+  Prisma,
+  RepairStatus,
+  RepairTicket,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
+import { withUserName } from '../common/with-user-name';
 
 // Repair Status only ever advances forward — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`
@@ -21,13 +27,6 @@ const NEXT_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
 };
 
 export type RepairTicketWithUserName = RepairTicket & { userName: string };
-
-function withUserName(
-  ticket: RepairTicket & { user: { name: string } },
-): RepairTicketWithUserName {
-  const { user, ...rest } = ticket;
-  return { ...rest, userName: user.name };
-}
 
 @Injectable()
 export class RepairsService {
@@ -109,24 +108,23 @@ export class RepairsService {
       data.adminReply = updates.adminReply;
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const ticket = await tx.repairTicket.update({
-        where: { id },
-        data,
-        include: { user: true },
-      });
-      if (updates.status !== undefined) {
-        await this.audit.record(
-          actorId,
-          AuditAction.REPAIR_STATUS_CHANGE,
-          'RepairTicket',
-          id,
-          `Status changed from ${previousStatus} to ${updates.status}`,
-          tx,
-        );
-      }
-      return ticket;
-    });
+    const updated = await this.audit.runAuditedTransaction(
+      (tx) =>
+        tx.repairTicket.update({
+          where: { id },
+          data,
+          include: { user: true },
+        }),
+      updates.status !== undefined
+        ? {
+            actorId,
+            action: AuditAction.REPAIR_STATUS_CHANGE,
+            targetType: 'RepairTicket',
+            targetId: id,
+            detail: `Status changed from ${previousStatus} to ${updates.status}`,
+          }
+        : null,
+    );
     await this.notifications.notifyRepairUpdate(updated, updated.user, updates);
     return withUserName(updated);
   }

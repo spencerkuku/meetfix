@@ -38,7 +38,10 @@ export class AdminService {
 
   async listPendingAccounts() {
     const accounts = await this.prisma.account.findMany({
-      where: { provider: AccountProvider.PASSWORD, status: AccountStatus.PENDING },
+      where: {
+        provider: AccountProvider.PASSWORD,
+        status: AccountStatus.PENDING,
+      },
       include: { user: { select: { id: true, email: true, name: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -60,24 +63,25 @@ export class AdminService {
       throw new BadRequestException('This Account is not pending approval');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.account.update({
-        where: { id: accountId },
-        data: { status: AccountStatus.ACTIVE },
-      });
-      await tx.user.update({
-        where: { id: account.userId },
-        data: { role: dto.role },
-      });
-      await this.audit.record(
+    await this.audit.runAuditedTransaction(
+      async (tx) => {
+        await tx.account.update({
+          where: { id: accountId },
+          data: { status: AccountStatus.ACTIVE },
+        });
+        await tx.user.update({
+          where: { id: account.userId },
+          data: { role: dto.role },
+        });
+      },
+      {
         actorId,
-        AuditAction.ACCOUNT_APPROVAL,
-        'Account',
-        accountId,
-        `Approved with Role ${dto.role}`,
-        tx,
-      );
-    });
+        action: AuditAction.ACCOUNT_APPROVAL,
+        targetType: 'Account',
+        targetId: accountId,
+        detail: `Approved with Role ${dto.role}`,
+      },
+    );
   }
 
   listAutoApprovedDomains() {
@@ -123,7 +127,13 @@ export class AdminService {
   listUsers() {
     return this.prisma.user.findMany({
       where: { account: { status: AccountStatus.ACTIVE } },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -144,21 +154,26 @@ export class AdminService {
         'This User does not have an active Account — use Account Approval instead',
       );
     }
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: { role: dto.role },
-        select: { id: true, email: true, name: true, role: true, createdAt: true },
-      });
-      await this.audit.record(
+    return this.audit.runAuditedTransaction(
+      (tx) =>
+        tx.user.update({
+          where: { id: userId },
+          data: { role: dto.role },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            createdAt: true,
+          },
+        }),
+      {
         actorId,
-        AuditAction.ROLE_CHANGE,
-        'User',
-        userId,
-        `Role changed from ${user.role} to ${dto.role}`,
-        tx,
-      );
-      return updated;
-    });
+        action: AuditAction.ROLE_CHANGE,
+        targetType: 'User',
+        targetId: userId,
+        detail: `Role changed from ${user.role} to ${dto.role}`,
+      },
+    );
   }
 }

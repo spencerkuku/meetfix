@@ -11,6 +11,14 @@ function toAuditLogEntryResponse(
   return { ...rest, actorName: actor.name, actorEmail: actor.email };
 }
 
+export interface AuditEntry {
+  actorId: string;
+  action: AuditAction;
+  targetType: string;
+  targetId: string;
+  detail?: string;
+}
+
 @Injectable()
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
@@ -29,6 +37,33 @@ export class AuditService {
   ) {
     return client.auditLogEntry.create({
       data: { actorId, action, targetType, targetId, detail },
+    });
+  }
+
+  // Runs `mutate` inside a transaction and, if `entry` (given the mutation's
+  // result) returns one, records the matching Audit Log Entry atomically
+  // with it — a Role change, Booking Approval, Account Approval or Repair
+  // Status change must never persist without its Audit Log Entry, and vice
+  // versa. Shared by every service that pairs a state change with an audit
+  // record, so that choreography lives in one place instead of being
+  // hand-copied per caller. See CONTEXT.md.
+  async runAuditedTransaction<T>(
+    mutate: (tx: Prisma.TransactionClient) => Promise<T>,
+    auditEntry: AuditEntry | null,
+  ): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await mutate(tx);
+      if (auditEntry) {
+        await this.record(
+          auditEntry.actorId,
+          auditEntry.action,
+          auditEntry.targetType,
+          auditEntry.targetId,
+          auditEntry.detail,
+          tx,
+        );
+      }
+      return result;
     });
   }
 

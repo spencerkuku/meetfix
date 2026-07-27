@@ -5,12 +5,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditAction, Booking, BookingStatus, Prisma, Role, Room } from '@prisma/client';
+import {
+  AuditAction,
+  Booking,
+  BookingStatus,
+  Prisma,
+  Role,
+  Room,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
+import { withUserName } from '../common/with-user-name';
 
 const ACTIVE_STATUSES: BookingStatus[] = [
   BookingStatus.CONFIRMED,
@@ -18,13 +26,6 @@ const ACTIVE_STATUSES: BookingStatus[] = [
 ];
 
 export type BookingWithUserName = Booking & { userName: string };
-
-function withUserName(
-  booking: Booking & { user: { name: string } },
-): BookingWithUserName {
-  const { user, ...rest } = booking;
-  return { ...rest, userName: user.name };
-}
 
 @Injectable()
 export class BookingsService {
@@ -243,22 +244,21 @@ export class BookingsService {
         'Only a PENDING_APPROVAL Booking can be approved or rejected',
       );
     }
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const booking = await tx.booking.update({
-        where: { id },
-        data: { status: outcome },
-        include: { user: true, room: true },
-      });
-      await this.audit.record(
+    const updated = await this.audit.runAuditedTransaction(
+      (tx) =>
+        tx.booking.update({
+          where: { id },
+          data: { status: outcome },
+          include: { user: true, room: true },
+        }),
+      {
         actorId,
-        AuditAction.BOOKING_APPROVAL,
-        'Booking',
-        id,
-        outcome === BookingStatus.CONFIRMED ? 'Approved' : 'Rejected',
-        tx,
-      );
-      return booking;
-    });
+        action: AuditAction.BOOKING_APPROVAL,
+        targetType: 'Booking',
+        targetId: id,
+        detail: outcome === BookingStatus.CONFIRMED ? 'Approved' : 'Rejected',
+      },
+    );
     await this.notifications.notifyBookingDecision(
       updated,
       updated.room,
