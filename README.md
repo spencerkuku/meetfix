@@ -1,14 +1,54 @@
 # MeetFix
 
+[![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=flat&logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat&logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+
 單一學校使用的教室/會議室借用與設施報修追蹤系統。詳細的領域詞彙請見 [`CONTEXT.md`](./CONTEXT.md)，架構決策的來龍去脈請見 [`docs/adr/`](./docs/adr/)。
 
 ## 架構
+
+```mermaid
+flowchart LR
+    Browser["瀏覽器<br/>React/Vite SPA"] -->|HTTPS| Caddy["Caddy<br/>反向代理 / 自動 HTTPS"]
+    Caddy -->|/api/*| API["NestJS API"]
+    Caddy -->|/uploads/*| Uploads[("uploads volume")]
+    API --> Postgres[("PostgreSQL")]
+    Backup["backup 服務<br/>排程 pg_dump"] --> Postgres
+    Backup --> Backups[("backups volume")]
+```
 
 - `backend/` — NestJS REST API，透過 Prisma 存取 PostgreSQL。
 - 前端（repo 根目錄）— 既有的 React/Vite 單頁應用程式（SPA）。
 - 部署 — 單一 `docker-compose` 堆疊：`api`（NestJS）、`postgres`、`backup`（排程 `pg_dump`）、`caddy`（反向代理，自動 HTTPS）。
 
-## 啟動完整堆疊（Docker）
+## 功能
+
+### Email 通知
+
+API 會在四種領域事件發生時寄送交易型通知信：借用申請送出待審核（通知 Room Manager）、借用審核結果（通知申請人）、非申請人本人取消借用（通知申請人）、報修單狀態變更或有新回覆（通知回報的 User）。透過 `SMTP_*` 環境變數設定 SMTP；若未設定 `SMTP_HOST`，寄信動作會被略過（以 debug 等級記錄）——其餘功能仍正常運作。
+
+### Google 日曆同步
+
+當一筆 Booking 狀態變為 `CONFIRMED` 時，會在申請人的 Google 日曆上建立對應事件，使用的是 Google 登入時取得的 Calendar OAuth 授權範圍與 refresh token（`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`；refresh token 本身會透過 `ENCRYPTION_KEY` 加密儲存）。當該 Booking 之後變為 `REJECTED` 或 `CANCELLED`，對應的日曆事件會被移除。此功能僅適用於以 Google 帳號登入的 User——使用密碼帳號的 User 沒有連結的日曆，因此不會為其嘗試任何日曆操作。同步失敗（授權被撤銷、API 錯誤等）僅會被記錄下來，不會影響原本的 Booking 操作結果。
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: 送出借用申請\n(通知 Room Manager)
+    PENDING --> CONFIRMED: 核准\n(通知申請人 / 建立日曆事件)
+    PENDING --> REJECTED: 拒絕\n(通知申請人)
+    CONFIRMED --> CANCELLED: 取消借用\n(非本人取消時通知申請人 / 移除日曆事件)
+    CONFIRMED --> [*]
+    REJECTED --> [*]
+    CANCELLED --> [*]
+```
+
+## 部署
+
+### 啟動步驟
 
 1. 複製環境變數範本並填入實際密碼：
    ```bash
@@ -29,29 +69,48 @@
 
 在 repo 根目錄的 `.env` 中設定（可參考 `.env.example`）：
 
+**資料庫**
+
 | 變數 | 用途 |
 | --- | --- |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | 資料庫帳密，`postgres` 與 `api` 共用 |
+
+**網域與 HTTPS**
+
+| 變數 | 用途 |
+| --- | --- |
 | `SITE_ADDRESS` | Caddy 服務並自動核發 HTTPS 憑證的網域。本機開發時保留 `localhost`（純 HTTP／本機憑證）；正式環境請填學校實際網域（例如 `meetfix.your-school.edu.tw`），Caddy 會自動取得並更新 Let's Encrypt 憑證——只要確保該網域的 DNS 指向此主機，且對外開放 80/443 連接埠即可。 |
 | `VITE_API_URL` | 前端開發伺服器尋找 API 的位置。`docker compose` 本身不會用到（該情境下由 Caddy 負責路由）——只有在本機執行 Vite 開發伺服器時才需要。 |
+
+**使用者認證**
+
+| 變數 | 用途 |
+| --- | --- |
+| `JWT_SECRET` | 用來簽署 session JWT——以 `openssl rand -hex 32` 產生。 |
+| `ENCRYPTION_KEY` | 32 位元組的 hex 金鑰，用於加密儲存中的 Google refresh token——以 `openssl rand -hex 32` 產生。 |
+
+**Google 登入與日曆同步**
+
+| 變數 | 用途 |
+| --- | --- |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 來自 Google Cloud Console（APIs & Services → Credentials），用於 Google Workspace 登入。 |
 | `GOOGLE_CALLBACK_URL` | 必須與 Google Cloud Console 上註冊的 redirect URI 完全一致，例如 `https://meetfix.your-school.edu.tw/auth/google/callback`。 |
 | `SCHOOL_GOOGLE_DOMAIN` | 允許登入的 Google Workspace 網域——其餘一律拒絕。 |
 | `FRONTEND_URL` | 前端的公開網址；Google 登入驗證後會導回此處。 |
-| `JWT_SECRET` | 用來簽署 session JWT——以 `openssl rand -hex 32` 產生。 |
-| `ENCRYPTION_KEY` | 32 位元組的 hex 金鑰，用於加密儲存中的 Google refresh token——以 `openssl rand -hex 32` 產生。 |
+
+**通知信**
+
+| 變數 | 用途 |
+| --- | --- |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 用於寄送交易型通知信件（借用審核、報修狀態更新等，詳見上方「功能」章節）的 SMTP 伺服器設定。全部選填——`SMTP_HOST` 留空即可完全停用寄信功能。 |
+
+**備份**
+
+| 變數 | 用途 |
+| --- | --- |
 | `BACKUP_RETENTION_DAYS` | `backup` 服務刪除舊備份前，保留的資料庫備份天數。選填，預設為 `14`。 |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 用於寄送交易型通知信件（借用審核、報修狀態更新等，詳見下方）的 SMTP 伺服器設定。全部選填——`SMTP_HOST` 留空即可完全停用寄信功能。 |
 
 上傳的檔案（教室與報修單照片）存放在掛載至 API 容器 `/app/uploads` 的 Docker volume（`uploads`）中，並透過 Caddy 於 `/uploads/*` 對外提供——詳見 ADR-0004。
-
-### Email 通知
-
-API 會在四種領域事件發生時寄送交易型通知信：借用申請送出待審核（通知 Room Manager）、借用審核結果（通知申請人）、非申請人本人取消借用（通知申請人）、報修單狀態變更或有新回覆（通知回報的 User）。透過上方的 `SMTP_*` 環境變數設定 SMTP；若未設定 `SMTP_HOST`，寄信動作會被略過（以 debug 等級記錄）——其餘功能仍正常運作。
-
-### Google 日曆同步
-
-當一筆 Booking 狀態變為 `CONFIRMED` 時，會在申請人的 Google 日曆上建立對應事件，使用的是 Google 登入時取得的 Calendar OAuth 授權範圍與 refresh token（`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`；refresh token 本身會透過 `ENCRYPTION_KEY` 加密儲存）。當該 Booking 之後變為 `REJECTED` 或 `CANCELLED`，對應的日曆事件會被移除。此功能僅適用於以 Google 帳號登入的 User——使用密碼帳號的 User 沒有連結的日曆，因此不會為其嘗試任何日曆操作。同步失敗（授權被撤銷、API 錯誤等）僅會被記錄下來，不會影響原本的 Booking 操作結果。
 
 ### 備份與還原
 
