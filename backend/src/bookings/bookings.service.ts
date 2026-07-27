@@ -25,6 +25,16 @@ const ACTIVE_STATUSES: BookingStatus[] = [
   BookingStatus.PENDING_APPROVAL,
 ];
 
+// A Booking's startTime may not be more than this far in the past — small
+// enough to tolerate ordinary clock skew between client and server, not to
+// permit meaningfully backdated Bookings.
+const PAST_START_TOLERANCE_MS = 5 * 60 * 1000;
+
+// The longest a single Booking may span. Without this, an auto-confirmed
+// (requiresApproval: false) Booking of arbitrary length permanently occupies
+// a Room's slot — see the security audit finding this closes.
+const MAX_BOOKING_DURATION_MS = 24 * 60 * 60 * 1000;
+
 export type BookingWithUserName = Booking & { userName: string };
 
 @Injectable()
@@ -97,6 +107,14 @@ export class BookingsService {
     ) {
       throw new BadRequestException(
         'endTime must be a valid date after startTime',
+      );
+    }
+    if (startTime.getTime() < Date.now() - PAST_START_TOLERANCE_MS) {
+      throw new BadRequestException('startTime cannot be in the past');
+    }
+    if (endTime.getTime() - startTime.getTime() > MAX_BOOKING_DURATION_MS) {
+      throw new BadRequestException(
+        'A Booking cannot span more than 24 hours',
       );
     }
 

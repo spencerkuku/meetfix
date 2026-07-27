@@ -302,6 +302,54 @@ describe('Bookings (e2e)', () => {
       .expect(400);
   });
 
+  it('rejects a Booking whose startTime is in the past', () => {
+    const start = new Date(Date.now() - 60 * 60 * 1000); // 1h ago
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    return request(app.getHttpServer())
+      .post('/bookings')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        roomId: openRoomId,
+        title: 'Backdated',
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      })
+      .expect(400);
+  });
+
+  it('rejects a Booking longer than 24 hours', () => {
+    // A fixed date well outside the nextSlot() cursor's range (2030-01-01
+    // plus a handful of hours), so this multi-day span can't collide with
+    // any other test's Booking on this shared Room.
+    const start = new Date('2031-06-01T00:00:00.000Z');
+    const end = new Date(start.getTime() + 25 * 60 * 60 * 1000);
+    return request(app.getHttpServer())
+      .post('/bookings')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        roomId: openRoomId,
+        title: 'Room-locking',
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      })
+      .expect(400);
+  });
+
+  it('accepts a Booking of exactly 24 hours', async () => {
+    const start = new Date('2031-07-01T00:00:00.000Z');
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    await request(app.getHttpServer())
+      .post('/bookings')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        roomId: openRoomId,
+        title: 'Exactly one day',
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      })
+      .expect(201);
+  });
+
   it('rejects creating a Booking for a Room that does not exist', () => {
     const slot = nextSlot();
     return request(app.getHttpServer())
