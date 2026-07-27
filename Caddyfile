@@ -3,5 +3,6 @@
 	reverse_proxy /api/* api:3000
 	reverse_proxy /auth/* api:3000
 	reverse_proxy /rooms* api:3000
+	reverse_proxy /bookings* api:3000
 	reverse_proxy /uploads/* api:3000
 }

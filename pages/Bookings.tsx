@@ -1,13 +1,14 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../App';
 import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
-import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Edit, GripVertical, Monitor, MapPin, CheckCircle2, AlertCircle, FileClock, AlignLeft } from 'lucide-react';
+import { BookingConflictError } from '../services/bookings';
+import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
 
 export const Bookings: React.FC = () => {
-  const { rooms, bookings, addBooking, updateBooking, removeBooking, currentUser } = useData();
+  const { rooms, bookings, addBooking, cancelBooking, currentUser } = useData();
   const { success, error, warning, info } = useToast();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'HISTORY'>('CALENDAR');
   const [view, setView] = useState<CalendarViewType>('WEEK');
@@ -29,9 +30,6 @@ export const Bookings: React.FC = () => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectStart, setSelectStart] = useState<{day: Date, hour: number} | null>(null);
   const [selectEnd, setSelectEnd] = useState<{day: Date, hour: number} | null>(null);
-
-  // Drag & Drop (Reschedule) State
-  const [draggedBooking, setDraggedBooking] = useState<Booking | null>(null);
 
   // Booking Form State
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
@@ -120,19 +118,15 @@ export const Bookings: React.FC = () => {
     setShowModal(true);
   };
 
+  // Opens the read-only detail view for an existing Booking (only the room/
+  // time can be set at creation — there is no reschedule/edit endpoint yet).
   const openEditModal = (booking: Booking) => {
     if (!currentUser) return;
-    // Permissions check: only owner or Admin can edit
+    // Permissions check: only the owner or an Admin can view/cancel
     if (booking.userId !== currentUser.id && currentUser.role !== UserRole.ADMIN) return;
 
     const start = new Date(booking.startTime);
     const end = new Date(booking.endTime);
-    
-    // Prevent editing past bookings
-    if (end < new Date()) {
-        warning("無法修改已過期的預約");
-        return;
-    }
 
     setEditingBookingId(booking.id);
     setSelectedRoom(booking.roomId);
@@ -215,121 +209,68 @@ export const Bookings: React.FC = () => {
     setSelectEnd(null);
   };
 
-  // --- Drag & Drop (Reschedule) Logic ---
-
-  const handleBookingDragStart = (e: React.DragEvent, booking: Booking) => {
-    if (!currentUser) return;
-    if (booking.userId !== currentUser.id && currentUser.role !== UserRole.ADMIN) {
-        e.preventDefault();
-        return;
-    }
-    
-    e.stopPropagation();
-    setDraggedBooking(booking);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', booking.id);
-    // Hide tooltip when dragging starts
-    setHoveredBooking(null);
-  };
-
-  const handleCellDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleCellDrop = (e: React.DragEvent, targetDay: Date, targetHour: number) => {
-    e.preventDefault();
-    if (!draggedBooking || !currentUser) return;
-
-    const originalStart = new Date(draggedBooking.startTime);
-    const originalEnd = new Date(draggedBooking.endTime);
-    const durationMs = originalEnd.getTime() - originalStart.getTime();
-
-    const newStart = new Date(targetDay);
-    newStart.setHours(targetHour, 0, 0, 0);
-
-    if (newStart < new Date()) {
-        error("不能移動到過去的時間");
-        setDraggedBooking(null);
-        return;
-    }
-
-    const newEnd = new Date(newStart.getTime() + durationMs);
-
-    updateBooking(draggedBooking.id, {
-        startTime: newStart.toISOString(),
-        endTime: newEnd.toISOString(),
-    });
-    success("預約時間已更新");
-
-    setDraggedBooking(null);
-  };
-
   // --- Form Submission ---
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || editingBookingId) return;
 
     const start = new Date(`${date}T${startTime}`);
     const end = new Date(`${date}T${endTime}`);
-    
+
     if (start >= end) {
         error("結束時間必須晚於開始時間");
         return;
     }
 
-    // Final availability check
+    // Client-side pre-check for immediate feedback; the server's Slot
+    // Conflict check is the real authority (see services/bookings.ts).
     if (!checkRoomAvailability(selectedRoom)) {
         error("所選時段該會議室已被預約，請更換時間或會議室。");
         return;
     }
 
     const room = rooms.find(r => r.id === selectedRoom);
-    const needsApproval = room?.requiresApproval && currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.ROOM_MANAGER;
 
-    if (editingBookingId) {
-        updateBooking(editingBookingId, {
+    setSubmitting(true);
+    try {
+        await addBooking({
             roomId: selectedRoom,
             title,
-            description, 
+            description,
             startTime: start.toISOString(),
             endTime: end.toISOString(),
-            status: needsApproval ? 'PENDING_APPROVAL' : 'CONFIRMED' 
         });
-        success("預約更新成功！");
-    } else {
-        const newBooking: Booking = {
-            id: crypto.randomUUID(),
-            roomId: selectedRoom,
-            userId: currentUser.id,
-            userName: currentUser.name,
-            title,
-            description, 
-            startTime: start.toISOString(),
-            endTime: end.toISOString(),
-            status: needsApproval ? 'PENDING_APPROVAL' : 'CONFIRMED'
-        };
-        addBooking(newBooking);
-        if (needsApproval) {
+        if (room?.requiresApproval) {
           warning("預約已送出！該會議室需經管理員審核。");
         } else {
           success("會議室預約成功！");
         }
+        setShowModal(false);
+        resetForm();
+    } catch (err) {
+        if (err instanceof BookingConflictError) {
+          error("所選時段該會議室已被預約，請更換時間或會議室。");
+        } else {
+          error("預約失敗,請稍後再試");
+        }
+    } finally {
+        setSubmitting(false);
     }
-    
-    setShowModal(false);
-    resetForm();
   };
 
-  const handleDelete = () => {
-    if (editingBookingId) {
-        if (window.confirm("確定要取消此預約嗎？")) {
-            removeBooking(editingBookingId);
-            success("預約已取消");
-            setShowModal(false);
-            resetForm();
-        }
+  const handleCancelBooking = async () => {
+    if (!editingBookingId) return;
+    if (!window.confirm("確定要取消此預約嗎？")) return;
+    try {
+        await cancelBooking(editingBookingId);
+        success("預約已取消");
+        setShowModal(false);
+        resetForm();
+    } catch {
+        error("取消失敗,請稍後再試");
     }
   }
 
@@ -463,9 +404,6 @@ export const Bookings: React.FC = () => {
                       onMouseDown={() => handleMouseDown(day, hour)}
                       onMouseEnter={() => handleMouseEnter(day, hour)}
                       onMouseUp={handleMouseUp}
-
-                      onDragOver={handleCellDragOver}
-                      onDrop={(e) => handleCellDrop(e, day, hour)}
                    >
                       {/* RED TIME LINE */}
                       {isToday && isCurrentHour && (
@@ -488,25 +426,22 @@ export const Bookings: React.FC = () => {
                         const canEdit = currentUser && (b.userId === currentUser.id || currentUser.role === UserRole.ADMIN);
                         const isPending = b.status === 'PENDING_APPROVAL';
                         return (
-                            <div key={b.id} 
-                                draggable={canEdit && !isPast}
-                                onDragStart={(e) => handleBookingDragStart(e, b)}
+                            <div key={b.id}
                                 onMouseEnter={(e) => handleBookingMouseEnter(e, b)}
                                 onMouseMove={handleBookingMouseMove}
                                 onMouseLeave={handleBookingMouseLeave}
                                 className={`absolute inset-1 z-20 border rounded p-1 text-xs overflow-hidden shadow-sm transition-all group
-                                    ${isPast 
-                                        ? 'bg-gray-200 text-gray-500 border-gray-300' 
-                                        : (isPending 
+                                    ${isPast
+                                        ? 'bg-gray-200 text-gray-500 border-gray-300'
+                                        : (isPending
                                             ? 'bg-yellow-50 text-yellow-800 border-yellow-300 border-dashed hover:bg-yellow-100'
                                             : 'bg-indigo-100 text-indigo-900 border-indigo-200 hover:bg-indigo-200 cursor-pointer hover:shadow-md')
                                     }
-                                    ${canEdit && !isPast ? 'cursor-move' : ''}
                                 `}
-                                onMouseDown={(e) => e.stopPropagation()} 
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    if (!isPast) openEditModal(b);
+                                    if (!isPast && canEdit) openEditModal(b);
                                 }}
                             >
                             <div className="font-bold truncate flex items-center justify-between">
@@ -514,7 +449,6 @@ export const Bookings: React.FC = () => {
                                   {isPending && <Clock size={10} className="text-yellow-600"/>}
                                   {b.title}
                                 </span>
-                                {canEdit && !isPast && <GripVertical size={10} className="opacity-0 group-hover:opacity-50"/>}
                             </div>
                             <div className="truncate text-[10px] opacity-80">{rooms.find(r => r.id === b.roomId)?.name}</div>
                             </div>
@@ -677,17 +611,21 @@ export const Bookings: React.FC = () => {
                         <td className="p-4">
                             {isFuture && booking.status !== 'REJECTED' && (
                                 <div className="flex gap-2">
-                                    <button onClick={() => openEditModal(booking)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded" title="編輯">
-                                        <Edit size={16}/>
+                                    <button onClick={() => openEditModal(booking)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded" title="查看詳情">
+                                        <Eye size={16}/>
                                     </button>
-                                    <button 
-                                        onClick={() => {
+                                    <button
+                                        onClick={async () => {
                                             if(window.confirm("確定要取消此預約？")) {
-                                                removeBooking(booking.id);
-                                                success("預約已取消");
+                                                try {
+                                                    await cancelBooking(booking.id);
+                                                    success("預約已取消");
+                                                } catch {
+                                                    error("取消失敗,請稍後再試");
+                                                }
                                             }
-                                        }} 
-                                        className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded" 
+                                        }}
+                                        className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded"
                                         title="取消預約"
                                     >
                                         <Trash2 size={16}/>
@@ -757,8 +695,8 @@ export const Bookings: React.FC = () => {
             {/* Modal Header */}
             <div className="px-8 py-5 border-b bg-slate-50 flex justify-between items-center">
               <div>
-                 <h3 className="font-bold text-xl text-slate-800">{editingBookingId ? '修改預約資訊' : '預約會議室'}</h3>
-                 <p className="text-sm text-slate-500 mt-1">請設定時間並選擇可用的會議室</p>
+                 <h3 className="font-bold text-xl text-slate-800">{editingBookingId ? '預約詳情' : '預約會議室'}</h3>
+                 <p className="text-sm text-slate-500 mt-1">{editingBookingId ? '此預約無法修改時間或會議室,如需變更請取消後重新預約' : '請設定時間並選擇可用的會議室'}</p>
               </div>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full p-1 transition-colors"><X/></button>
             </div>
@@ -769,43 +707,46 @@ export const Bookings: React.FC = () => {
                     <form id="booking-form" onSubmit={handleSubmit} className="space-y-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">會議主題 *</label>
-                            <input required type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="例如：Q4 策略會議" />
+                            <input required disabled={!!editingBookingId} type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:bg-slate-50 disabled:text-slate-500" placeholder="例如：Q4 策略會議" />
                         </div>
 
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">會議內容 (選填)</label>
-                            <textarea 
+                            <textarea
                                 rows={3}
-                                value={description} 
-                                onChange={e => setDescription(e.target.value)} 
-                                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
-                                placeholder="簡述會議目的或議程..." 
+                                disabled={!!editingBookingId}
+                                value={description}
+                                onChange={e => setDescription(e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none resize-none disabled:bg-slate-50 disabled:text-slate-500"
+                                placeholder="簡述會議目的或議程..."
                             />
                         </div>
-                        
+
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">日期</label>
-                            <input required type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <input required disabled={!!editingBookingId} type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                         </div>
-                        
+
                         <div className="space-y-2">
                              <label className="block text-sm font-bold text-slate-700">時間區間</label>
                              <div className="grid grid-cols-2 gap-2">
                                 <div className="space-y-1">
                                     <span className="text-xs text-slate-500">開始</span>
-                                    <input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                                    <input required disabled={!!editingBookingId} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                                 </div>
                                 <div className="space-y-1">
                                     <span className="text-xs text-slate-500">結束</span>
-                                    <input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                                    <input required disabled={!!editingBookingId} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                                 </div>
                              </div>
-                             
-                             <div className="flex gap-2 pt-2">
-                                 <button type="button" onClick={() => setDuration(30)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+30分</button>
-                                 <button type="button" onClick={() => setDuration(60)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+1小時</button>
-                                 <button type="button" onClick={() => setDuration(90)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+1.5小時</button>
-                             </div>
+
+                             {!editingBookingId && (
+                               <div className="flex gap-2 pt-2">
+                                   <button type="button" onClick={() => setDuration(30)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+30分</button>
+                                   <button type="button" onClick={() => setDuration(60)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+1小時</button>
+                                   <button type="button" onClick={() => setDuration(90)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+1.5小時</button>
+                               </div>
+                             )}
                         </div>
                     </form>
                 </div>
@@ -823,9 +764,9 @@ export const Bookings: React.FC = () => {
                             const isSelected = selectedRoom === room.id;
                             
                             return (
-                                <div 
+                                <div
                                     key={room.id}
-                                    onClick={() => isAvailable && setSelectedRoom(room.id)}
+                                    onClick={() => !editingBookingId && isAvailable && setSelectedRoom(room.id)}
                                     className={`
                                         relative flex items-center gap-4 p-3 rounded-xl border-2 transition-all cursor-pointer
                                         ${isSelected 
@@ -885,16 +826,18 @@ export const Bookings: React.FC = () => {
             <div className="px-8 py-4 border-t bg-white flex justify-between items-center">
                  <div>
                     {editingBookingId && (
-                        <Button type="button" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2" onClick={handleDelete}>
+                        <Button type="button" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2" onClick={handleCancelBooking}>
                             <Trash2 size={18} className="mr-2"/> 取消此預約
                         </Button>
                     )}
                  </div>
                  <div className="flex gap-3">
                     <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>關閉</Button>
-                    <Button onClick={handleSubmit} disabled={!checkRoomAvailability(selectedRoom)}>
-                        {editingBookingId ? '確認更新' : '確認預約'}
-                    </Button>
+                    {!editingBookingId && (
+                        <Button onClick={handleSubmit} disabled={submitting || !checkRoomAvailability(selectedRoom)} isLoading={submitting}>
+                            確認預約
+                        </Button>
+                    )}
                  </div>
             </div>
           </div>

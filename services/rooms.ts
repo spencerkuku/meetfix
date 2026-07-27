@@ -1,7 +1,5 @@
 import { Room } from '../types';
-import { getToken } from './auth';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { API_URL, authHeaders } from './http';
 
 interface ApiRoom {
   id: string;
@@ -17,11 +15,6 @@ export interface RoomFormInput {
   capacity: number;
   equipment: string[];
   requiresApproval: boolean;
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // The API returns image paths relative to itself (e.g. /uploads/rooms/x.png);

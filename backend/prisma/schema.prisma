@@ -37,7 +37,8 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
-  account Account?
+  account  Account?
+  bookings Booking[]
 }
 
 model Account {
@@ -66,4 +67,32 @@ model Room {
   imageUrl         String
   requiresApproval Boolean  @default(false)
   createdAt        DateTime @default(now())
+
+  bookings Booking[]
+}
+
+// Booking Status: see CONTEXT.md. CONFIRMED and PENDING_APPROVAL both hold
+// the time slot exclusively; only REJECTED and CANCELLED release it.
+enum BookingStatus {
+  CONFIRMED
+  PENDING_APPROVAL
+  REJECTED
+  CANCELLED
+}
+
+// Booking: a claim on a Room for a specific time range. See CONTEXT.md.
+model Booking {
+  id          String        @id @default(cuid())
+  roomId      String
+  room        Room          @relation(fields: [roomId], references: [id])
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  status      BookingStatus
+  createdAt   DateTime      @default(now())
+
+  @@index([roomId, startTime, endTime])
 }

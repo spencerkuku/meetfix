@@ -15,6 +15,7 @@ import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
+import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, CreateBookingInput } from './services/bookings';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
@@ -22,12 +23,6 @@ const MOCK_USERS: User[] = [
   { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatar: 'https://i.pravatar.cc/150?u=b', phone: '0922-333-444' },
   { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatar: 'https://i.pravatar.cc/150?u=c' },
   { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatar: 'https://i.pravatar.cc/150?u=d' },
-];
-
-const INITIAL_BOOKINGS: Booking[] = [
-  { id: 'b1', roomId: 'r1', userId: 'u1', userName: '陳小美', title: '週會', description: '每週例行進度報告與問題討論', startTime: new Date(new Date().setHours(9,0,0,0)).toISOString(), endTime: new Date(new Date().setHours(10,0,0,0)).toISOString(), status: 'CONFIRMED' },
-  { id: 'b2', roomId: 'r2', userId: 'u3', userName: '林經理', title: '客戶訪談', description: '與重要客戶進行需求訪談', startTime: new Date(new Date().setHours(14,0,0,0)).toISOString(), endTime: new Date(new Date().setHours(15,0,0,0)).toISOString(), status: 'CONFIRMED' },
-  { id: 'b3', roomId: 'r3', userId: 'u1', userName: '陳小美', title: '專案報告', description: 'Q3 專案結案報告', startTime: new Date(new Date().setHours(16,0,0,0)).toISOString(), endTime: new Date(new Date().setHours(17,0,0,0)).toISOString(), status: 'PENDING_APPROVAL' },
 ];
 
 const INITIAL_REPAIRS: RepairTicket[] = [
@@ -69,9 +64,12 @@ interface DataContextType {
   loginWithGoogle: () => void;
   completeGoogleLogin: (code: string) => Promise<void>;
   logout: () => void;
-  addBooking: (booking: Booking) => void;
+  addBooking: (input: CreateBookingInput) => Promise<void>;
+  // Booking Approval (#7) isn't wired to the backend yet — this mutates
+  // local state only, so approve/reject in the Approvals page doesn't
+  // persist across a refresh until that ticket lands.
   updateBooking: (id: string, updates: Partial<Booking>) => void;
-  removeBooking: (id: string) => void;
+  cancelBooking: (id: string) => Promise<void>;
   addRepair: (repair: RepairTicket) => void;
   updateRepair: (id: string, updates: Partial<RepairTicket>) => void;
   updateMockRole: (userId: string, role: UserRole) => void;
@@ -95,7 +93,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [mockUsers, setMockUsers] = useState<User[]>(MOCK_USERS);
-  const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [repairs, setRepairs] = useState<RepairTicket[]>(INITIAL_REPAIRS);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [repairCategories, setRepairCategories] = useState<string[]>(DEFAULT_REPAIR_CATEGORIES);
@@ -116,9 +114,11 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   useEffect(() => {
     if (!currentUser) {
       setRooms([]);
+      setBookings([]);
       return;
     }
     fetchRooms().then(setRooms).catch(() => setRooms([]));
+    fetchBookings().then(setBookings).catch(() => setBookings([]));
   }, [currentUser]);
 
   const loginWithGoogle = () => {
@@ -138,14 +138,18 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setCurrentUser(null);
   };
 
-  const addBooking = (booking: Booking) => setBookings(prev => [...prev, booking]);
-  
+  const addBooking = async (input: CreateBookingInput) => {
+    const booking = await createBooking(input);
+    setBookings(prev => [...prev, booking]);
+  };
+
   const updateBooking = (id: string, updates: Partial<Booking>) => {
     setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
   };
 
-  const removeBooking = (id: string) => {
-    setBookings(prev => prev.filter(b => b.id !== id));
+  const cancelBooking = async (id: string) => {
+    const booking = await cancelBookingApi(id);
+    setBookings(prev => prev.map(b => b.id === id ? booking : b));
   };
 
   const addRepair = (repair: RepairTicket) => setRepairs(prev => [...prev, repair]);
@@ -193,7 +197,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return (
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
-      loginWithGoogle, completeGoogleLogin, logout, addBooking, updateBooking, removeBooking,
+      loginWithGoogle, completeGoogleLogin, logout, addBooking, updateBooking, cancelBooking,
       addRepair, updateRepair, updateMockRole, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom
     }}>
