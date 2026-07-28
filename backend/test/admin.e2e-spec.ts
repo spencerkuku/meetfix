@@ -121,6 +121,74 @@ describe('Admin (e2e)', () => {
         .send({ domain: 'dupe.example.com' })
         .expect(409);
     });
+
+    it('defaults a new domain to allowSubdomains: false, and ADMIN can toggle it on and off', async () => {
+      const created = await apiRequest(app)
+        .post('/admin/auto-approved-domains')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ domain: 'subdomain-toggle.example.com' })
+        .expect(201);
+      const body = created.body as { id: string; allowSubdomains: boolean };
+      expect(body.allowSubdomains).toBe(false);
+
+      const enabled = await apiRequest(app)
+        .patch(`/admin/auto-approved-domains/${body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowSubdomains: true })
+        .expect(200);
+      expect(
+        (enabled.body as { allowSubdomains: boolean }).allowSubdomains,
+      ).toBe(true);
+
+      const disabled = await apiRequest(app)
+        .patch(`/admin/auto-approved-domains/${body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowSubdomains: false })
+        .expect(200);
+      expect(
+        (disabled.body as { allowSubdomains: boolean }).allowSubdomains,
+      ).toBe(false);
+    });
+
+    it('can add a domain with allowSubdomains true directly', async () => {
+      const created = await apiRequest(app)
+        .post('/admin/auto-approved-domains')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ domain: 'subdomain-onadd.example.com', allowSubdomains: true })
+        .expect(201);
+      expect(
+        (created.body as { allowSubdomains: boolean }).allowSubdomains,
+      ).toBe(true);
+    });
+
+    it('404s when toggling a domain that does not exist', () => {
+      return apiRequest(app)
+        .patch('/admin/auto-approved-domains/does-not-exist')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowSubdomains: true })
+        .expect(404);
+    });
+
+    it('rejects toggling with a non-boolean allowSubdomains', async () => {
+      const created = await apiRequest(app)
+        .post('/admin/auto-approved-domains')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ domain: 'subdomain-badinput.example.com' })
+        .expect(201);
+      const body = created.body as { id: string };
+
+      await apiRequest(app)
+        .patch(`/admin/auto-approved-domains/${body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowSubdomains: 'yes' })
+        .expect(400);
+
+      await apiRequest(app)
+        .patch(`/admin/auto-approved-domains/${body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(400);
+    });
   });
 
   describe('Account Approval', () => {

@@ -177,6 +177,62 @@ describe('Audit Log (e2e)', () => {
     expect(entries[0].targetType).toBe('Account');
   });
 
+  it('adding, toggling, and removing an Auto-Approved Domain each write exactly one correctly-attributed entry', async () => {
+    const created = await apiRequest(app)
+      .post('/admin/auto-approved-domains')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ domain: 'audit-domain.example.com' })
+      .expect(201);
+    const domainId = (created.body as { id: string }).id;
+
+    await apiRequest(app)
+      .patch(`/admin/auto-approved-domains/${domainId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ allowSubdomains: true })
+      .expect(200);
+
+    await apiRequest(app)
+      .delete(`/admin/auto-approved-domains/${domainId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(204);
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: 'AUTO_APPROVED_DOMAIN_CHANGE',
+        targetId: domainId,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(entries).toHaveLength(3);
+    expect(entries.every((e) => e.actorId === adminId)).toBe(true);
+    expect(entries.every((e) => e.targetType === 'AutoApprovedDomain')).toBe(
+      true,
+    );
+  });
+
+  it('a no-op toggle on an Auto-Approved Domain (value unchanged) writes no additional entry', async () => {
+    const created = await apiRequest(app)
+      .post('/admin/auto-approved-domains')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ domain: 'audit-noop-domain.example.com' })
+      .expect(201);
+    const domainId = (created.body as { id: string }).id;
+
+    await apiRequest(app)
+      .patch(`/admin/auto-approved-domains/${domainId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ allowSubdomains: false })
+      .expect(200);
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: 'AUTO_APPROVED_DOMAIN_CHANGE',
+        targetId: domainId,
+      },
+    });
+    expect(entries).toHaveLength(1); // only the initial add
+  });
+
   it('a Repair Status change writes exactly one correctly-attributed entry, but a reply-only update writes none', async () => {
     const reporter = await tokenFor('audit-reporter1@school.edu.tw', Role.USER);
     const ticket = await apiRequest(app)

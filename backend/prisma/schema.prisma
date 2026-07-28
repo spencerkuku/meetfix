@@ -46,10 +46,16 @@ model User {
 // Auto-Approved Domain: an email domain an Admin has pre-cleared. A PASSWORD
 // registration whose email matches activates immediately as Role USER;
 // anything else lands PENDING for Account Approval. See CONTEXT.md, ADR-0003.
+// `allowSubdomains` is per-entry and opt-in: when true, an email under any
+// subdomain of `domain` also qualifies (e.g. `dept.xxx.edu.tw` for a
+// `xxx.edu.tw` entry). Defaults false so existing entries (and any Admin
+// adds for an unrelated domain, e.g. a vendor's) keep exact-match-only
+// behavior unless explicitly widened.
 model AutoApprovedDomain {
-  id        String   @id @default(cuid())
-  domain    String   @unique
-  createdAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  domain          String   @unique
+  allowSubdomains Boolean  @default(false)
+  createdAt       DateTime @default(now())
 }
 
 model Account {
@@ -167,6 +173,7 @@ enum AuditAction {
   BOOKING_APPROVAL
   ACCOUNT_APPROVAL
   REPAIR_STATUS_CHANGE
+  AUTO_APPROVED_DOMAIN_CHANGE
 }
 
 model AuditLogEntry {

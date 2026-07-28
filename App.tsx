@@ -19,7 +19,7 @@ import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, excha
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
-import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
+import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
 
 // --- Mock Data ---
@@ -61,7 +61,8 @@ interface DataContextType {
   pendingAccounts: PendingAccount[];
   approveAccount: (accountId: string, role: UserRole) => Promise<void>;
   autoApprovedDomains: AutoApprovedDomain[];
-  addAutoApprovedDomain: (domain: string) => Promise<void>;
+  addAutoApprovedDomain: (domain: string, allowSubdomains?: boolean) => Promise<void>;
+  updateAutoApprovedDomain: (id: string, allowSubdomains: boolean) => Promise<void>;
   removeAutoApprovedDomain: (id: string) => Promise<void>;
   auditLog: AuditLogEntry[];
   addRepairCategory: (name: string) => Promise<void>;
@@ -212,9 +213,14 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setUsers(await fetchUsers());
   };
 
-  const addAutoApprovedDomain = async (domain: string) => {
-    const created = await addAutoApprovedDomainApi(domain);
+  const addAutoApprovedDomain = async (domain: string, allowSubdomains = false) => {
+    const created = await addAutoApprovedDomainApi(domain, allowSubdomains);
     setAutoApprovedDomains(prev => [...prev, created]);
+  };
+
+  const updateAutoApprovedDomain = async (id: string, allowSubdomains: boolean) => {
+    const updated = await updateAutoApprovedDomainApi(id, allowSubdomains);
+    setAutoApprovedDomains(prev => prev.map(d => d.id === id ? updated : d));
   };
 
   const removeAutoApprovedDomain = async (id: string) => {
@@ -262,7 +268,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       addRepair, updateRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, pendingAccounts, approveAccount,
-      autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain, auditLog
+      autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain, auditLog
     }}>
       {children}
     </DataContext.Provider>

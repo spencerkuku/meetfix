@@ -38,7 +38,7 @@ _Avoid_: Verified, Enabled
 An Admin's act of moving a Pending Account to Active and assigning it a Role. Distinct from Booking Approval — different actor, different object, different consequence. Triggered only for password-registered emails outside the Auto-Approved Domain list.
 
 **Auto-Approved Domain**:
-An email domain (e.g. `school.edu.tw`) on an Admin-maintained list. A password registration whose email matches skips Account Approval and activates immediately with the USER role.
+An email domain (e.g. `school.edu.tw`) on an Admin-maintained list. A password registration whose email matches skips Account Approval and activates immediately with the USER role. Each entry may optionally be marked to also trust its subdomains (e.g. `dept.school.edu.tw`) — off by default, so widening one entry (typically the school's own domain) never widens another (e.g. a vendor's domain added for unrelated reasons). Password registration performs no email-ownership verification, so this match is against a self-reported string, not a confirmed mailbox.
 
 ### Rooms & Bookings
 

@@ -393,6 +393,70 @@ describe('Auth (e2e)', () => {
       );
     });
 
+    it('activates immediately for a subdomain when the matched entry has allowSubdomains: true', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'xxx.edu.tw', allowSubdomains: true },
+      });
+
+      const res = await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'staff@dept.xxx.edu.tw',
+          name: '部門職員',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('ACTIVE');
+    });
+
+    it('activates immediately for a multi-level subdomain when allowSubdomains: true', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'xxx.edu.tw', allowSubdomains: true },
+      });
+
+      const res = await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'staff@lab.cs.xxx.edu.tw',
+          name: '實驗室職員',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('ACTIVE');
+    });
+
+    it('lands PENDING for a subdomain when the matched entry has allowSubdomains: false', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'xxx.edu.tw', allowSubdomains: false },
+      });
+
+      const res = await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'staff@dept.xxx.edu.tw',
+          name: '部門職員二',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('PENDING');
+    });
+
+    it('never treats a lookalike domain as a subdomain match', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'xxx.edu.tw', allowSubdomains: true },
+      });
+
+      const res = await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'staff@evilxxx.edu.tw',
+          name: '偽裝網域',
+          password: 'password123',
+        })
+        .expect(201);
+      expect((res.body as { status: string }).status).toBe('PENDING');
+    });
+
     it('lands PENDING when the email domain is not on the Auto-Approved Domain list', async () => {
       const res = await apiRequest(app)
         .post('/auth/register')

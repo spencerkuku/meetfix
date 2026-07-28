@@ -32,6 +32,15 @@ const GOOGLE_LINK_STATE_PURPOSE = 'google-account-link';
 const DUMMY_PASSWORD_HASH =
   '$2a$10$CwTycUXWue0Thq9StjUM0uJ8g8vHU8WPPRZuJdSp1Nz1cCf/aG7QW';
 
+// Every dot-bounded suffix of `domain`, including itself — candidates for
+// an Auto-Approved Domain lookup. Built from `.`-boundaries only, so a
+// lookalike like `evilxxx.edu.tw` can never produce `xxx.edu.tw` as a
+// candidate and therefore can never match it as a subdomain.
+function domainAndAncestors(domain: string): string[] {
+  const labels = domain.split('.');
+  return labels.map((_, i) => labels.slice(i).join('.'));
+}
+
 @Injectable()
 export class AuthService {
   // One-time codes handed to the browser instead of the JWT itself, so the
@@ -239,11 +248,17 @@ export class AuthService {
     }
 
     const domain = dto.email.split('@')[1]?.toLowerCase();
-    const autoApproved =
-      !!domain &&
-      (await this.prisma.autoApprovedDomain.findUnique({
-        where: { domain },
-      }));
+    let autoApproved = false;
+    if (domain) {
+      const candidates = await this.prisma.autoApprovedDomain.findMany({
+        where: { domain: { in: domainAndAncestors(domain) } },
+      });
+      autoApproved = candidates.some(
+        (entry) =>
+          entry.domain === domain ||
+          (entry.allowSubdomains && domain.endsWith(`.${entry.domain}`)),
+      );
+    }
     const status = autoApproved ? AccountStatus.ACTIVE : AccountStatus.PENDING;
     const passwordHash = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
 

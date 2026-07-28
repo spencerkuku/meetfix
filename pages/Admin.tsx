@@ -8,11 +8,12 @@ import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe } from
 export const Admin: React.FC = () => {
   const {
     currentUser, users, updateUserRole, repairCategories, addRepairCategory, removeRepairCategory,
-    pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, removeAutoApprovedDomain,
+    pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
   } = useData();
   const { success, error } = useToast();
   const [newCategory, setNewCategory] = useState('');
   const [newDomain, setNewDomain] = useState('');
+  const [newDomainAllowSubdomains, setNewDomainAllowSubdomains] = useState(false);
   const [approvalRoles, setApprovalRoles] = useState<Record<string, UserRole>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -61,11 +62,20 @@ export const Admin: React.FC = () => {
     e.preventDefault();
     if (!newDomain.trim()) return;
     try {
-      await addAutoApprovedDomain(newDomain.trim());
+      await addAutoApprovedDomain(newDomain.trim(), newDomainAllowSubdomains);
       setNewDomain('');
+      setNewDomainAllowSubdomains(false);
       success('網域已新增');
     } catch {
       error('新增網域失敗，請確認網域是否已存在');
+    }
+  };
+
+  const handleToggleAllowSubdomains = async (id: string, allowSubdomains: boolean) => {
+    try {
+      await updateAutoApprovedDomain(id, allowSubdomains);
+    } catch {
+      error('更新網域設定失敗，請稍後再試');
     }
   };
 
@@ -194,7 +204,7 @@ export const Admin: React.FC = () => {
           <div className="bg-white rounded-xl border shadow-sm p-6">
             <p className="text-sm text-slate-500 mb-4">符合以下網域的帳號密碼註冊將自動啟用，無需人工審核。</p>
 
-            <form onSubmit={handleAddDomain} className="flex gap-2 mb-6">
+            <form onSubmit={handleAddDomain} className="flex flex-col sm:flex-row gap-2 mb-6 sm:items-center">
                <input
                   type="text"
                   value={newDomain}
@@ -202,13 +212,33 @@ export const Admin: React.FC = () => {
                   placeholder="輸入網域 (例如：vendor.example.com)"
                   className="flex-1 border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
                />
+               <label className="flex items-center gap-2 text-sm text-slate-600 whitespace-nowrap">
+                  <input
+                     type="checkbox"
+                     checked={newDomainAllowSubdomains}
+                     onChange={e => setNewDomainAllowSubdomains(e.target.checked)}
+                     className="rounded border-slate-300"
+                  />
+                  允許子網域
+               </label>
                <Button type="submit"><Plus size={18} className="mr-1"/> 新增網域</Button>
             </form>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                {autoApprovedDomains.map(d => (
                  <div key={d.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 group hover:border-blue-300 transition-colors">
-                    <span className="text-slate-700 text-sm font-medium">{d.domain}</span>
+                    <div className="flex flex-col">
+                       <span className="text-slate-700 text-sm font-medium">{d.domain}</span>
+                       <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <input
+                             type="checkbox"
+                             checked={d.allowSubdomains}
+                             onChange={e => handleToggleAllowSubdomains(d.id, e.target.checked)}
+                             className="rounded border-slate-300"
+                          />
+                          允許子網域
+                       </label>
+                    </div>
                     <button
                        onClick={() => handleRemoveDomain(d.id)}
                        className="text-slate-300 hover:text-red-500 transition-colors"

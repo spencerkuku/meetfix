@@ -8,6 +8,7 @@ const actionLabels: Record<AuditAction, string> = {
   BOOKING_APPROVAL: '預約審核',
   ACCOUNT_APPROVAL: '帳號核准',
   REPAIR_STATUS_CHANGE: '報修狀態變更',
+  AUTO_APPROVED_DOMAIN_CHANGE: '自動核准網域變更',
 };
 
 export const AuditLog: React.FC = () => {

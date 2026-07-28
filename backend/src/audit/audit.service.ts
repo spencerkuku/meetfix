@@ -49,17 +49,19 @@ export class AuditService {
   // hand-copied per caller. See CONTEXT.md.
   async runAuditedTransaction<T>(
     mutate: (tx: Prisma.TransactionClient) => Promise<T>,
-    auditEntry: AuditEntry | null,
+    auditEntry: AuditEntry | null | ((result: T) => AuditEntry | null),
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const result = await mutate(tx);
-      if (auditEntry) {
+      const entry =
+        typeof auditEntry === 'function' ? auditEntry(result) : auditEntry;
+      if (entry) {
         await this.record(
-          auditEntry.actorId,
-          auditEntry.action,
-          auditEntry.targetType,
-          auditEntry.targetId,
-          auditEntry.detail,
+          entry.actorId,
+          entry.action,
+          entry.targetType,
+          entry.targetId,
+          entry.detail,
           tx,
         );
       }

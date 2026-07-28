@@ -60,13 +60,23 @@ export async function fetchAutoApprovedDomains(): Promise<AutoApprovedDomain[]> 
   return res.json();
 }
 
-export async function addAutoApprovedDomain(domain: string): Promise<AutoApprovedDomain> {
+export async function addAutoApprovedDomain(domain: string, allowSubdomains = false): Promise<AutoApprovedDomain> {
   const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
     method: 'POST',
     headers: authHeaders(true),
-    body: JSON.stringify({ domain }),
+    body: JSON.stringify({ domain, allowSubdomains }),
   });
   if (!res.ok) throw new Error('Failed to add domain');
+  return res.json();
+}
+
+export async function updateAutoApprovedDomain(id: string, allowSubdomains: boolean): Promise<AutoApprovedDomain> {
+  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(true),
+    body: JSON.stringify({ allowSubdomains }),
+  });
+  if (!res.ok) throw new Error('Failed to update domain');
   return res.json();
 }
 

@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateRoleDto } from './update-role.dto';
 import { AddDomainDto } from './add-domain.dto';
+import { UpdateDomainDto } from './update-domain.dto';
 
 function toPendingAccount(
   account: Account & { user: { id: string; email: string; name: string } },
@@ -91,15 +92,23 @@ export class AdminService {
     });
   }
 
-  async addAutoApprovedDomain(dto: AddDomainDto) {
+  async addAutoApprovedDomain(actorId: string, dto: AddDomainDto) {
     const domain = dto.domain?.trim().toLowerCase();
     if (!domain) {
       throw new BadRequestException('domain is required');
     }
+    const allowSubdomains = dto.allowSubdomains ?? false;
     try {
-      return await this.prisma.autoApprovedDomain.create({
-        data: { domain },
-      });
+      return await this.audit.runAuditedTransaction(
+        (tx) => tx.autoApprovedDomain.create({ data: { domain, allowSubdomains } }),
+        (created) => ({
+          actorId,
+          action: AuditAction.AUTO_APPROVED_DOMAIN_CHANGE,
+          targetType: 'AutoApprovedDomain',
+          targetId: created.id,
+          detail: `Added domain ${domain} (allowSubdomains=${allowSubdomains})`,
+        }),
+      );
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -111,14 +120,56 @@ export class AdminService {
     }
   }
 
-  async removeAutoApprovedDomain(id: string): Promise<void> {
+  async updateAutoApprovedDomain(
+    actorId: string,
+    id: string,
+    dto: UpdateDomainDto,
+  ) {
+    if (typeof dto.allowSubdomains !== 'boolean') {
+      throw new BadRequestException('allowSubdomains must be a boolean');
+    }
+    const existing = await this.prisma.autoApprovedDomain.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Auto-Approved Domain not found');
+    }
+    const changed = existing.allowSubdomains !== dto.allowSubdomains;
+    return this.audit.runAuditedTransaction(
+      (tx) =>
+        tx.autoApprovedDomain.update({
+          where: { id },
+          data: { allowSubdomains: dto.allowSubdomains },
+        }),
+      changed
+        ? {
+            actorId,
+            action: AuditAction.AUTO_APPROVED_DOMAIN_CHANGE,
+            targetType: 'AutoApprovedDomain',
+            targetId: id,
+            detail: `Set allowSubdomains=${dto.allowSubdomains} for domain ${existing.domain}`,
+          }
+        : null,
+    );
+  }
+
+  async removeAutoApprovedDomain(actorId: string, id: string): Promise<void> {
     const domain = await this.prisma.autoApprovedDomain.findUnique({
       where: { id },
     });
     if (!domain) {
       throw new NotFoundException('Auto-Approved Domain not found');
     }
-    await this.prisma.autoApprovedDomain.delete({ where: { id } });
+    await this.audit.runAuditedTransaction(
+      (tx) => tx.autoApprovedDomain.delete({ where: { id } }),
+      {
+        actorId,
+        action: AuditAction.AUTO_APPROVED_DOMAIN_CHANGE,
+        targetType: 'AutoApprovedDomain',
+        targetId: id,
+        detail: `Removed domain ${domain.domain}`,
+      },
+    );
   }
 
   // Only Users with an ACTIVE Account are listed/editable here — a User

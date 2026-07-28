@@ -18,6 +18,7 @@ import { Roles } from '../auth/roles.decorator';
 import { AdminService } from './admin.service';
 import type { UpdateRoleDto } from './update-role.dto';
 import type { AddDomainDto } from './add-domain.dto';
+import type { UpdateDomainDto } from './update-domain.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -45,14 +46,26 @@ export class AdminController {
   }
 
   @Post('auto-approved-domains')
-  addAutoApprovedDomain(@Body() body: AddDomainDto) {
-    return this.adminService.addAutoApprovedDomain(body);
+  addAutoApprovedDomain(
+    @CurrentUser() actor: User,
+    @Body() body: AddDomainDto,
+  ) {
+    return this.adminService.addAutoApprovedDomain(actor.id, body);
+  }
+
+  @Patch('auto-approved-domains/:id')
+  updateAutoApprovedDomain(
+    @CurrentUser() actor: User,
+    @Param('id') id: string,
+    @Body() body: UpdateDomainDto,
+  ) {
+    return this.adminService.updateAutoApprovedDomain(actor.id, id, body);
   }
 
   @Delete('auto-approved-domains/:id')
   @HttpCode(204)
-  removeAutoApprovedDomain(@Param('id') id: string) {
-    return this.adminService.removeAutoApprovedDomain(id);
+  removeAutoApprovedDomain(@CurrentUser() actor: User, @Param('id') id: string) {
+    return this.adminService.removeAutoApprovedDomain(actor.id, id);
   }
 
   @Get('users')
