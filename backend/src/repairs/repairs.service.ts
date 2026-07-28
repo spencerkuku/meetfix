@@ -67,9 +67,9 @@ export class RepairsService {
     dto: RepairTicketInput,
     imageUrl?: string,
   ): Promise<RepairTicketWithUserName> {
-    if ((!dto.location && !dto.roomId) || !dto.category || !dto.description) {
+    if (!dto.location || !dto.category || !dto.description) {
       throw new BadRequestException(
-        'location (or roomId), category and description are required',
+        'location, category and description are required',
       );
     }
 
@@ -80,21 +80,8 @@ export class RepairsService {
       throw new BadRequestException('Unknown Repair Category');
     }
 
-    let location = dto.location;
-    if (dto.roomId) {
-      const room = await this.prisma.room.findUnique({
-        where: { id: dto.roomId },
-      });
-      if (!room) {
-        throw new NotFoundException('Room not found');
-      }
-      // A Room's name at submission time — the ticket stays readable even
-      // if the Room is later renamed or removed. See CONTEXT.md.
-      location = dto.location?.trim() || room.name;
-    }
-
     const created = await this.prisma.repairTicket.create({
-      data: { ...dto, location, userId, imageUrl },
+      data: { ...dto, userId, imageUrl },
       include: { user: { select: { name: true } } },
     });
     return withUserName(created);

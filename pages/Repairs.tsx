@@ -7,15 +7,13 @@ import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin } from 'lucide-react';
 
 export const Repairs: React.FC = () => {
-  const { repairs, rooms, addRepair, currentUser, repairCategories } = useData();
+  const { repairs, addRepair, currentUser, repairCategories } = useData();
   const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
 
   // Form State
-  const FREE_TEXT_LOCATION = 'FREE_TEXT';
-  const [selectedRoomId, setSelectedRoomId] = useState<string>(FREE_TEXT_LOCATION);
   const [locationText, setLocationText] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<string>('');
@@ -29,7 +27,6 @@ export const Repairs: React.FC = () => {
   // Initialize Form Defaults
   useEffect(() => {
     if (showModal && currentUser) {
-      setSelectedRoomId(FREE_TEXT_LOCATION);
       setLocationText('');
       setCategory(repairCategories[0]?.name || '');
       setUserClass(currentUser.class || '');
@@ -65,11 +62,9 @@ export const Repairs: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const usingRealRoom = selectedRoomId !== FREE_TEXT_LOCATION;
       await addRepair(
         {
-          roomId: usingRealRoom ? selectedRoomId : undefined,
-          location: usingRealRoom ? '' : locationText,
+          location: locationText,
           category,
           description,
           userClass: userClass || undefined,
@@ -229,25 +224,14 @@ export const Repairs: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">問題地點 *</label>
-                  <select
+                  <input
                     required
-                    value={selectedRoomId}
-                    onChange={e => setSelectedRoomId(e.target.value)}
-                    className="w-full border rounded-md p-2 bg-white mb-2"
-                  >
-                    <option value={FREE_TEXT_LOCATION}>自行輸入地點...</option>
-                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                  {selectedRoomId === FREE_TEXT_LOCATION && (
-                    <input
-                      required
-                      type="text"
-                      value={locationText}
-                      onChange={e => setLocationText(e.target.value)}
-                      placeholder="例如：2樓走廊, 一樓大廳..."
-                      className="w-full border rounded-md p-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  )}
+                    type="text"
+                    value={locationText}
+                    onChange={e => setLocationText(e.target.value)}
+                    placeholder="例如：2樓走廊, 一樓大廳..."
+                    className="w-full border rounded-md p-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">問題分類 *</label>

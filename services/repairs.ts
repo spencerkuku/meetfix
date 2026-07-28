@@ -2,7 +2,6 @@ import { RepairCategory, RepairTicket } from '../types';
 import { API_URL, API_BASE_URL, authHeaders } from './http';
 
 export interface RepairTicketFormInput {
-  roomId?: string;
   location: string;
   category: string;
   description: string;
@@ -44,7 +43,6 @@ export async function createRepairTicket(
   photo?: File,
 ): Promise<RepairTicket> {
   const formData = new FormData();
-  if (input.roomId) formData.append('roomId', input.roomId);
   formData.append('location', input.location);
   formData.append('category', input.category);
   formData.append('description', input.description);

@@ -47,7 +47,6 @@ export class RepairsController {
     return this.repairsService.create(
       user.id,
       {
-        roomId: body.roomId,
         location: body.location ?? '',
         category: body.category ?? '',
         description: body.description ?? '',

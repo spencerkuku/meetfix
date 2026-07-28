@@ -52,8 +52,7 @@ export interface RepairCategory {
 
 export interface RepairTicket {
   id: string;
-  roomId?: string; // set when tied to a real Room; absent for a free-text location. See CONTEXT.md.
-  location: string; // human-readable location — the Room's name, or free text.
+  location: string; // free-text location, entered by the reporter.
   userId: string;
   userName: string;
   userClass?: string;
