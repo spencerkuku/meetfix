@@ -18,6 +18,7 @@ import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import { withUserName } from '../common/with-user-name';
 import { maskName } from '../common/mask-name';
+import { canSeeReporterDetails } from './repair-visibility';
 
 // Repair Status only ever advances forward — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`
@@ -46,11 +47,9 @@ export class RepairsService {
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { name: true } } },
     });
-    const privileged =
-      callerRole === Role.ADMIN || callerRole === Role.MAINTENANCE;
     return tickets.map((ticket) => {
       const withName = withUserName(ticket);
-      if (privileged || ticket.userId === callerId) {
+      if (canSeeReporterDetails(callerRole, callerId, ticket.userId)) {
         return withName;
       }
       return {
