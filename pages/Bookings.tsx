@@ -280,16 +280,16 @@ export const Bookings: React.FC = () => {
     }
   };
 
-  const handleCancelBooking = async () => {
+  const handleDeleteBooking = async () => {
     if (!editingBookingId) return;
-    if (!window.confirm("確定要取消此預約嗎？")) return;
+    if (!window.confirm("確定要刪除此預約？此動作無法復原。")) return;
     try {
-        await cancelBooking(editingBookingId);
-        success("預約已取消");
+        await deleteBooking(editingBookingId);
+        success("預約已刪除");
         setShowModal(false);
         resetForm();
     } catch {
-        error("取消失敗,請稍後再試");
+        error("刪除失敗,請稍後再試");
     }
   }
 
@@ -484,6 +484,9 @@ export const Bookings: React.FC = () => {
   };
 
   const viewLabels = { 'MONTH': '月', 'WEEK': '週', 'DAY': '日' };
+
+  // Mirrors the History tab's canDelete rule (startTime still in the future).
+  const canDeleteEditingBooking = !!editingBookingId && new Date(`${date}T${startTime}`) > new Date();
 
   return (
     <div className="space-y-6 relative">
@@ -874,9 +877,9 @@ export const Bookings: React.FC = () => {
             {/* Modal Footer */}
             <div className="px-8 py-4 border-t bg-white flex justify-between items-center">
                  <div>
-                    {editingBookingId && (
-                        <Button type="button" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2" onClick={handleCancelBooking}>
-                            <Trash2 size={18} className="mr-2"/> 取消此預約
+                    {canDeleteEditingBooking && (
+                        <Button type="button" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2" onClick={handleDeleteBooking}>
+                            <Trash2 size={18} className="mr-2"/> 刪除此預約
                         </Button>
                     )}
                  </div>
