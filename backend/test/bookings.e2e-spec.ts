@@ -34,15 +34,13 @@ describe('Bookings (e2e)', () => {
   let approvalRoomId: string;
   // The wiring to NotificationsService is exercised for real here (mocked
   // only at the SMTP-send boundary) so we assert it fires with the right
-  // decision outcome — see notification-decisions.spec.ts for the pure
-  // decision logic itself, unit-tested independent of this wiring.
+  // decision outcome.
   const notifications = {
     notifyBookingSubmittedForApproval: jest.fn(),
     notifyBookingDecision: jest.fn(),
     notifyBookingCancelled: jest.fn(),
   };
-  // Same rationale as `notifications` above — see
-  // calendar-sync-decisions.spec.ts for the pure decision logic.
+  // Same rationale as `notifications` above.
   const calendar = {
     syncBookingConfirmed: jest.fn().mockResolvedValue(null),
     removeBookingEvent: jest.fn().mockResolvedValue(undefined),

@@ -1,12 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Booking, RepairTicket, Room, User } from '@prisma/client';
+import { Booking, BookingStatus, RepairTicket, Room, User } from '@prisma/client';
 import { createTransport, Transporter } from 'nodemailer';
-import {
-  shouldNotifyBookingCancelled,
-  shouldNotifyBookingSubmittedForApproval,
-  shouldNotifyRepairUpdate,
-} from './notification-decisions';
 
 // Transactional email on booking/repair domain events. SMTP is optional —
 // with no SMTP_HOST configured, `send` no-ops (logged, not thrown), so the
@@ -41,7 +36,7 @@ export class NotificationsService {
     room: Room,
     roomManagers: User[],
   ): Promise<void> {
-    if (!shouldNotifyBookingSubmittedForApproval(booking.status)) return;
+    if (booking.status !== BookingStatus.PENDING_APPROVAL) return;
     await Promise.all(
       roomManagers.map((manager) =>
         this.send(
@@ -72,9 +67,7 @@ export class NotificationsService {
     requester: User,
     cancelledByUserId: string,
   ): Promise<void> {
-    if (!shouldNotifyBookingCancelled(booking.userId, cancelledByUserId)) {
-      return;
-    }
+    if (cancelledByUserId === booking.userId) return;
     await this.send(
       requester.email,
       `您的預約「${booking.title}」已被取消`,
@@ -87,7 +80,9 @@ export class NotificationsService {
     reporter: User,
     updates: { status?: unknown; adminReply?: unknown },
   ): Promise<void> {
-    if (!shouldNotifyRepairUpdate(updates)) return;
+    if (updates.status === undefined && updates.adminReply === undefined) {
+      return;
+    }
     await this.send(
       reporter.email,
       `您的報修單狀態更新：${ticket.location}`,

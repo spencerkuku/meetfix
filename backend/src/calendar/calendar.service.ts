@@ -1,13 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Account, Booking, Room } from '@prisma/client';
+import { Account, Booking, BookingStatus, Room } from '@prisma/client';
 import { google } from 'googleapis';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenEncryptionService } from '../auth/token-encryption.service';
-import {
-  shouldRemoveBookingFromCalendar,
-  shouldSyncBookingToCalendar,
-} from './calendar-sync-decisions';
 
 // Google Calendar sync for CONFIRMED Bookings, using the refresh token
 // captured at Google login time (see AuthService/TokenEncryptionService).
@@ -32,11 +28,13 @@ export class CalendarService {
     room: Room,
     account: Account,
   ): Promise<string | null> {
+    // Eligibility is based on whether the Account has a Google identity linked
+    // (googleRefreshToken present), not on how the User originally
+    // registered — a password Account can link Google later and becomes
+    // eligible immediately.
     if (
-      !shouldSyncBookingToCalendar(
-        booking.status,
-        account.googleRefreshToken != null,
-      )
+      booking.status !== BookingStatus.CONFIRMED ||
+      account.googleRefreshToken == null
     ) {
       return null;
     }
@@ -62,9 +60,10 @@ export class CalendarService {
   }
 
   async removeBookingEvent(booking: Booking, account: Account): Promise<void> {
-    if (
-      !shouldRemoveBookingFromCalendar(booking.status, booking.googleEventId)
-    ) {
+    const isReleasedStatus =
+      booking.status === BookingStatus.REJECTED ||
+      booking.status === BookingStatus.CANCELLED;
+    if (!isReleasedStatus || booking.googleEventId === null) {
       return;
     }
     if (!account.googleRefreshToken) {
