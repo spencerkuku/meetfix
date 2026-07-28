@@ -536,6 +536,149 @@ describe('Auth (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('Change password (self-service)', () => {
+    async function registerAndLoginPasswordUser(
+      email = 'changepw@school.edu.tw',
+      password = 'password123',
+    ): Promise<{ userId: string; accessToken: string }> {
+      await prisma.autoApprovedDomain.upsert({
+        where: { domain: 'school.edu.tw' },
+        create: { domain: 'school.edu.tw' },
+        update: {},
+      });
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({ email, name: '改密碼使用者', password })
+        .expect(201);
+      const login = await apiRequest(app)
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(201);
+      const { accessToken } = login.body as { accessToken: string };
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      return { userId: user.id, accessToken };
+    }
+
+    afterEach(async () => {
+      await prisma.autoApprovedDomain.deleteMany({});
+    });
+
+    it('changes the password given the correct current password, and the new password works on next login', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser(
+        'changepw-success@school.edu.tw',
+        'password123',
+      );
+
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'password123', newPassword: 'newpassword456' })
+        .expect(200);
+
+      await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'changepw-success@school.edu.tw',
+          password: 'newpassword456',
+        })
+        .expect(201);
+
+      await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'changepw-success@school.edu.tw',
+          password: 'password123',
+        })
+        .expect(401);
+    });
+
+    it('rejects with the wrong current password, and leaves the password unchanged', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser(
+        'changepw-wrongcurrent@school.edu.tw',
+        'password123',
+      );
+
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'wrong-password', newPassword: 'newpassword456' })
+        .expect(401);
+
+      await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'changepw-wrongcurrent@school.edu.tw',
+          password: 'password123',
+        })
+        .expect(201);
+    });
+
+    it('rejects a too-short new password', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser(
+        'changepw-shortnew@school.edu.tw',
+        'password123',
+      );
+
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'password123', newPassword: '123' })
+        .expect(400);
+    });
+
+    it('rejects an unauthenticated request', () => {
+      return apiRequest(app)
+        .patch('/auth/password')
+        .send({ currentPassword: 'password123', newPassword: 'newpassword456' })
+        .expect(401);
+    });
+
+    it('rejects a pure Google-only account with a clear error (no password to change)', async () => {
+      const { accessToken } = await issueSessionToken();
+
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'anything', newPassword: 'newpassword456' })
+        .expect(400);
+    });
+
+    it('still allows changing the password after linking Google onto a password Account', async () => {
+      const { accessToken } = await registerAndLoginPasswordUser(
+        'changepw-linked@school.edu.tw',
+        'password123',
+      );
+      const linkRes = await apiRequest(app)
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = new URL((linkRes.body as { url: string }).url).searchParams.get(
+        'state',
+      );
+      await authService.linkGoogleAccount(
+        state!,
+        schoolProfile({
+          email: 'changepw-linked@school.edu.tw',
+          googleSub: 'google-sub-changepw-linked',
+        }),
+      );
+
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'password123', newPassword: 'newpassword456' })
+        .expect(200);
+
+      await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'changepw-linked@school.edu.tw',
+          password: 'newpassword456',
+        })
+        .expect(201);
+    });
+  });
 });
 
 // A fresh app instance per test, each with its own in-memory
@@ -612,6 +755,36 @@ describe('Auth rate limiting (e2e)', () => {
         name: '節流測試',
         password: 'password123',
       })
+      .expect(429);
+  });
+
+  it('rejects the 6th /auth/password attempt within 60s from the same source with 429', async () => {
+    await apiRequest(app)
+      .post('/auth/register')
+      .send({
+        email: 'throttle-password@school.edu.tw',
+        name: '節流測試',
+        password: 'password123',
+      })
+      .expect(201);
+    const login = await apiRequest(app)
+      .post('/auth/login')
+      .send({ email: 'throttle-password@school.edu.tw', password: 'password123' })
+      .expect(201);
+    const { accessToken } = login.body as { accessToken: string };
+
+    for (let i = 0; i < 5; i++) {
+      await apiRequest(app)
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword: 'wrong', newPassword: 'newpassword456' })
+        .expect(401);
+    }
+
+    await apiRequest(app)
+      .patch('/auth/password')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ currentPassword: 'wrong', newPassword: 'newpassword456' })
       .expect(429);
   });
 });

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../App';
 import { UserRole } from '../types';
-import { getGoogleLinkUrl, getToken } from '../services/auth';
+import { getGoogleLinkUrl, getToken, changePassword } from '../services/auth';
 import { useToast } from './Toast';
 import {
   Calendar,
@@ -27,7 +27,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { currentUser, logout, updateUser } = useData();
   const location = useLocation();
   const navigate = useNavigate();
-  const { error: showError } = useToast();
+  const { error: showError, success: showSuccess } = useToast();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [linkingGoogle, setLinkingGoogle] = useState(false);
@@ -36,6 +36,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [profileName, setProfileName] = useState('');
   const [profileClass, setProfileClass] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
   
@@ -54,7 +59,31 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     setProfileName(currentUser.name);
     setProfileClass(currentUser.class || '');
     setProfilePhone(currentUser.phone || '');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
     setShowProfileModal(true);
+  };
+
+  const handleChangePassword = async () => {
+    const token = getToken();
+    if (!token) return;
+    if (newPassword !== confirmNewPassword) {
+      showError('新密碼與確認密碼不一致');
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await changePassword(token, currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      showSuccess('密碼已更新');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '修改密碼失敗，請稍後再試');
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   const handleLinkGoogle = async () => {
@@ -310,6 +339,46 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     {linkingGoogle ? '連結中…' : '連結 Google'}
                   </Button>
                 )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                <p className="text-sm font-medium text-slate-700">修改密碼</p>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">目前密碼</label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={e => setCurrentPassword(e.target.value)}
+                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">新密碼</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">確認新密碼</label>
+                  <input
+                    type="password"
+                    value={confirmNewPassword}
+                    onChange={e => setConfirmNewPassword(e.target.value)}
+                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full bg-white"
+                  disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+                  onClick={handleChangePassword}
+                >
+                  {changingPassword ? '更新中…' : '更新密碼'}
+                </Button>
               </div>
 
               <div>

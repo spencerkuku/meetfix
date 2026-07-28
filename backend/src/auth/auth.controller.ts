@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  Patch,
   Post,
   Req,
   Res,
@@ -19,6 +21,7 @@ import { CurrentUser } from './current-user.decorator';
 import type { ExchangeLoginCodeDto } from './exchange-login-code.dto';
 import type { RegisterWithPasswordDto } from './register-with-password.dto';
 import type { LoginWithPasswordDto } from './login-with-password.dto';
+import type { ChangePasswordDto } from './change-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -96,6 +99,21 @@ export class AuthController {
   @UseGuards(ThrottlerGuard)
   login(@Body() body: LoginWithPasswordDto) {
     return this.authService.loginWithPassword(body);
+  }
+
+  // Rate limited for the same reason as register/login above — this
+  // endpoint takes a password (the current one) as input and is
+  // authenticated, so a stolen session shouldn't get unlimited attempts to
+  // brute-force it.
+  @Patch('password')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  async changePassword(
+    @CurrentUser() user: User,
+    @Body() body: ChangePasswordDto,
+  ) {
+    await this.authService.changePassword(user.id, body);
+    return { success: true };
   }
 
   @Get('me')

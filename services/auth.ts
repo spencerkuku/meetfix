@@ -101,6 +101,25 @@ export async function fetchCurrentUser(token: string): Promise<User | null> {
   }
 }
 
+// Self-service password change for the currently-logged-in User. Requires
+// the current password so a hijacked session alone can't lock the real
+// owner out by resetting it.
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/auth/password`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || 'Failed to change password');
+  }
+}
+
 // Lets an already-logged-in password-Account User attach a Google identity
 // to their Account (e.g. to enable Calendar sync). Returns the Google
 // authorization URL to navigate the browser to directly — never routes the

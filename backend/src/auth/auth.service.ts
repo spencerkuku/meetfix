@@ -20,6 +20,7 @@ import { GOOGLE_OAUTH_SCOPE, GoogleProfile } from './google-profile.interface';
 import { TokenEncryptionService } from './token-encryption.service';
 import { RegisterWithPasswordDto } from './register-with-password.dto';
 import { LoginWithPasswordDto } from './login-with-password.dto';
+import { ChangePasswordDto } from './change-password.dto';
 
 const LOGIN_CODE_TTL_MS = 60_000;
 const PASSWORD_HASH_ROUNDS = 10;
@@ -324,6 +325,50 @@ export class AuthService {
     }
 
     return { accessToken: await this.signToken(user) };
+  }
+
+  // Self-service password change. Eligibility is keyed off `passwordHash`
+  // existing, not the Account's `provider` — linking Google onto an
+  // existing password Account (see linkGoogleAccount) leaves `provider`
+  // as PASSWORD and the passwordHash untouched, so a dual-login Account
+  // must still be able to change its password here.
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    if (!dto.currentPassword || !dto.newPassword) {
+      throw new BadRequestException(
+        'currentPassword and newPassword are required',
+      );
+    }
+    if (dto.newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new BadRequestException(
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      );
+    }
+
+    const account = await this.prisma.account.findUnique({
+      where: { userId },
+    });
+    if (!account?.passwordHash) {
+      throw new BadRequestException(
+        'This account has no password set — it can only sign in with Google',
+      );
+    }
+
+    const valid = await bcrypt.compare(
+      dto.currentPassword,
+      account.passwordHash,
+    );
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const passwordHash = await bcrypt.hash(
+      dto.newPassword,
+      PASSWORD_HASH_ROUNDS,
+    );
+    await this.prisma.account.update({
+      where: { userId },
+      data: { passwordHash },
+    });
   }
 
   async findUserById(id: string): Promise<User | null> {
