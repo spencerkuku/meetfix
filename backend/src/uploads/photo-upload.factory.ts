@@ -5,6 +5,7 @@ import { join } from 'path';
 import { memoryStorage } from 'multer';
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import type { Express } from 'express';
+import { API_PREFIX } from '../bootstrap';
 
 // Only formats we can safely serve as a static <img> source. Anything else
 // (notably image/svg+xml, which can carry a <script>) is rejected outright —
@@ -85,5 +86,5 @@ export async function persistValidatedPhoto(
 }
 
 export function photoUrl(subdir: string, filename: string): string {
-  return `/uploads/${subdir}/${filename}`;
+  return `/${API_PREFIX}/uploads/${subdir}/${filename}`;
 }

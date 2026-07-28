@@ -3,10 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { serveUploads } from './uploads/serve-uploads';
+import { setApiPrefix } from './bootstrap';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
+  setApiPrefix(app);
   // Deliberately unauthenticated: <img> tags can't send an Authorization
   // header, and uploaded photos (room photos, repair-ticket photos) aren't
   // sensitive data. Filenames are random UUIDs, so this is "unlisted", not

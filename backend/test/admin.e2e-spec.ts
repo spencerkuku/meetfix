@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { Role } from '@prisma/client';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
 
 describe('Admin (e2e)', () => {
   let app: INestApplication<App>;
@@ -35,6 +36,7 @@ describe('Admin (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -61,30 +63,28 @@ describe('Admin (e2e)', () => {
 
   describe('Authorization', () => {
     it('rejects a non-ADMIN User from every admin endpoint', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .get('/admin/pending-accounts')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .get('/admin/auto-approved-domains')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .get('/admin/users')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
     });
 
     it('rejects unauthenticated requests', () => {
-      return request(app.getHttpServer())
-        .get('/admin/users')
-        .expect(401);
+      return apiRequest(app).get('/admin/users').expect(401);
     });
   });
 
   describe('Auto-Approved Domain management', () => {
     it('ADMIN can add and remove a domain', async () => {
-      const created = await request(app.getHttpServer())
+      const created = await apiRequest(app)
         .post('/admin/auto-approved-domains')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ domain: 'partner.example.com' })
@@ -92,7 +92,7 @@ describe('Admin (e2e)', () => {
       const body = created.body as { id: string; domain: string };
       expect(body.domain).toBe('partner.example.com');
 
-      const list = await request(app.getHttpServer())
+      const list = await apiRequest(app)
         .get('/admin/auto-approved-domains')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -102,20 +102,20 @@ describe('Admin (e2e)', () => {
         ),
       ).toBe(true);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .delete(`/admin/auto-approved-domains/${body.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(204);
     });
 
     it('rejects adding a duplicate domain', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/admin/auto-approved-domains')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ domain: 'dupe.example.com' })
         .expect(201);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/admin/auto-approved-domains')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ domain: 'dupe.example.com' })
@@ -125,7 +125,7 @@ describe('Admin (e2e)', () => {
 
   describe('Account Approval', () => {
     it('lists PENDING Accounts and approves one, setting both Status and Role', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'pendingvendor@unknown.example.com',
@@ -134,7 +134,7 @@ describe('Admin (e2e)', () => {
         })
         .expect(201);
 
-      const pending = await request(app.getHttpServer())
+      const pending = await apiRequest(app)
         .get('/admin/pending-accounts')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -143,13 +143,13 @@ describe('Admin (e2e)', () => {
       ).find((a) => a.email === 'pendingvendor@unknown.example.com');
       expect(entry).toBeDefined();
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/admin/accounts/${entry!.id}/approve`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'MAINTENANCE' })
         .expect(200);
 
-      const login = await request(app.getHttpServer())
+      const login = await apiRequest(app)
         .post('/auth/login')
         .send({
           email: 'pendingvendor@unknown.example.com',
@@ -165,7 +165,7 @@ describe('Admin (e2e)', () => {
       await prisma.autoApprovedDomain.create({
         data: { domain: 'autoactive.example.com' },
       });
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'active@autoactive.example.com',
@@ -174,7 +174,7 @@ describe('Admin (e2e)', () => {
         })
         .expect(201);
 
-      const pendingList = await request(app.getHttpServer())
+      const pendingList = await apiRequest(app)
         .get('/admin/pending-accounts')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -189,7 +189,7 @@ describe('Admin (e2e)', () => {
         include: { account: true },
       });
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/admin/accounts/${user!.account!.id}/approve`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'USER' })
@@ -199,7 +199,7 @@ describe('Admin (e2e)', () => {
 
   describe('User role management', () => {
     it('ADMIN can change the Role of an existing active User', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .patch(`/admin/users/${(
           await prisma.user.findUniqueOrThrow({
             where: { email: 'plainuser@school.edu.tw' },
@@ -217,7 +217,7 @@ describe('Admin (e2e)', () => {
     });
 
     it('404s when changing the role of a User that does not exist', () => {
-      return request(app.getHttpServer())
+      return apiRequest(app)
         .patch('/admin/users/not-a-real-user/role')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'USER' })
@@ -225,7 +225,7 @@ describe('Admin (e2e)', () => {
     });
 
     it('excludes a User whose Account is still PENDING from the user list, and rejects changing its Role directly', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'sidedoor@unknown.example.com',
@@ -237,7 +237,7 @@ describe('Admin (e2e)', () => {
         where: { email: 'sidedoor@unknown.example.com' },
       });
 
-      const list = await request(app.getHttpServer())
+      const list = await apiRequest(app)
         .get('/admin/users')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -245,7 +245,7 @@ describe('Admin (e2e)', () => {
         (list.body as { id: string }[]).some((u) => u.id === user.id),
       ).toBe(false);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/admin/users/${user.id}/role`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'MAINTENANCE' })
@@ -257,7 +257,7 @@ describe('Admin (e2e)', () => {
         where: { email: 'admin@school.edu.tw' },
       });
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/admin/users/${admin.id}/role`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'USER' })
@@ -275,7 +275,7 @@ describe('Admin (e2e)', () => {
         where: { email: 'second-admin@school.edu.tw' },
       });
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .patch(`/admin/users/${secondAdmin.id}/role`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'USER' })

@@ -6,12 +6,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { GoogleProfile } from './../src/auth/google-profile.interface';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
 
 // Every test in this file but the dedicated "Rate limiting" block below
 // calls /auth/login or /auth/register many times in quick succession — far
@@ -54,7 +55,7 @@ describe('Auth (e2e)', () => {
   }> {
     const { user } = await authService.loginWithGoogle(profile);
     const code = authService.createLoginCode(user.id);
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/auth/exchange')
       .send({ code })
       .expect(201);
@@ -71,6 +72,7 @@ describe('Auth (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -125,13 +127,13 @@ describe('Auth (e2e)', () => {
   });
 
   it('GET /auth/me rejects requests with no token', () => {
-    return request(app.getHttpServer()).get('/auth/me').expect(401);
+    return apiRequest(app).get('/auth/me').expect(401);
   });
 
   it('GET /auth/me returns the current user for a valid session token', async () => {
     const { userId, accessToken } = await issueSessionToken();
 
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .get('/auth/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
@@ -147,28 +149,20 @@ describe('Auth (e2e)', () => {
     const { user } = await authService.loginWithGoogle(schoolProfile());
     const code = authService.createLoginCode(user.id);
 
-    await request(app.getHttpServer())
-      .post('/auth/exchange')
-      .send({ code })
-      .expect(201);
+    await apiRequest(app).post('/auth/exchange').send({ code }).expect(201);
 
-    await request(app.getHttpServer())
-      .post('/auth/exchange')
-      .send({ code })
-      .expect(401);
+    await apiRequest(app).post('/auth/exchange').send({ code }).expect(401);
   });
 
   it('POST /auth/exchange rejects an unknown login code', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/auth/exchange')
       .send({ code: 'not-a-real-code' })
       .expect(401);
   });
 
   it('GET /auth/google redirects to Google restricted to the school domain with the Calendar scope', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/auth/google')
-      .expect(302);
+    const res = await apiRequest(app).get('/auth/google').expect(302);
 
     const location = res.headers.location;
     expect(location).toContain('accounts.google.com');
@@ -199,11 +193,11 @@ describe('Auth (e2e)', () => {
         create: { domain: 'school.edu.tw' },
         update: {},
       });
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({ email, name: '雙重帳號使用者', password: 'password123' })
         .expect(201);
-      const login = await request(app.getHttpServer())
+      const login = await apiRequest(app)
         .post('/auth/login')
         .send({ email, password: 'password123' })
         .expect(201);
@@ -217,13 +211,13 @@ describe('Auth (e2e)', () => {
     });
 
     it('GET /auth/google/link rejects requests with no session', () => {
-      return request(app.getHttpServer()).get('/auth/google/link').expect(401);
+      return apiRequest(app).get('/auth/google/link').expect(401);
     });
 
     it('GET /auth/google/link returns a Google authorization URL scoped to the school domain and Calendar, carrying a state for the current user', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
 
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
@@ -239,7 +233,7 @@ describe('Auth (e2e)', () => {
 
     it('links a Google identity onto an existing password Account without touching its password credential', async () => {
       const { userId, accessToken } = await registerAndLoginPasswordUser();
-      const linkRes = await request(app.getHttpServer())
+      const linkRes = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
@@ -260,7 +254,7 @@ describe('Auth (e2e)', () => {
 
     it('makes a Google login work afterwards, resolving to the same User', async () => {
       const { userId, accessToken } = await registerAndLoginPasswordUser();
-      const linkRes = await request(app.getHttpServer())
+      const linkRes = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
@@ -281,13 +275,13 @@ describe('Auth (e2e)', () => {
 
     it('rejects the Google-link state token when replayed as a session Bearer token', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
-      const linkRes = await request(app.getHttpServer())
+      const linkRes = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
       const state = extractState((linkRes.body as { url: string }).url);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .get('/auth/me')
         .set('Authorization', `Bearer ${state}`)
         .expect(401);
@@ -295,7 +289,7 @@ describe('Auth (e2e)', () => {
 
     it('rejects linking when the Google account email does not match the current account email', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
-      const linkRes = await request(app.getHttpServer())
+      const linkRes = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
@@ -311,7 +305,7 @@ describe('Auth (e2e)', () => {
 
     it('rejects linking a Google identity that is already linked to a different User', async () => {
       const first = await registerAndLoginPasswordUser('dual-a@school.edu.tw');
-      const firstLink = await request(app.getHttpServer())
+      const firstLink = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${first.accessToken}`)
         .expect(200);
@@ -321,7 +315,7 @@ describe('Auth (e2e)', () => {
       );
 
       const second = await registerAndLoginPasswordUser('dual-b@school.edu.tw');
-      const secondLink = await request(app.getHttpServer())
+      const secondLink = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${second.accessToken}`)
         .expect(200);
@@ -336,7 +330,7 @@ describe('Auth (e2e)', () => {
 
     it('rejects linking a Google account outside the school Workspace domain', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
-      const linkRes = await request(app.getHttpServer())
+      const linkRes = await apiRequest(app)
         .get('/auth/google/link')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
@@ -380,7 +374,7 @@ describe('Auth (e2e)', () => {
         data: { domain: 'vendor.example.com' },
       });
 
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'tech@vendor.example.com',
@@ -390,7 +384,7 @@ describe('Auth (e2e)', () => {
         .expect(201);
       expect((res.body as { status: string }).status).toBe('ACTIVE');
 
-      const login = await request(app.getHttpServer())
+      const login = await apiRequest(app)
         .post('/auth/login')
         .send({ email: 'tech@vendor.example.com', password: 'password123' })
         .expect(201);
@@ -400,7 +394,7 @@ describe('Auth (e2e)', () => {
     });
 
     it('lands PENDING when the email domain is not on the Auto-Approved Domain list', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'outsider@unknown.example.com',
@@ -412,7 +406,7 @@ describe('Auth (e2e)', () => {
     });
 
     it('rejects login for a PENDING account with a clear error, not a silent failure', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'pending@unknown.example.com',
@@ -421,7 +415,7 @@ describe('Auth (e2e)', () => {
         })
         .expect(201);
 
-      const res = await request(app.getHttpServer())
+      const res = await apiRequest(app)
         .post('/auth/login')
         .send({ email: 'pending@unknown.example.com', password: 'password123' })
         .expect(401);
@@ -432,7 +426,7 @@ describe('Auth (e2e)', () => {
       await prisma.autoApprovedDomain.create({
         data: { domain: 'vendor.example.com' },
       });
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'tech2@vendor.example.com',
@@ -441,14 +435,14 @@ describe('Auth (e2e)', () => {
         })
         .expect(201);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/login')
         .send({ email: 'tech2@vendor.example.com', password: 'wrong-password' })
         .expect(401);
     });
 
     it('rejects registering a duplicate email', async () => {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'dupe@unknown.example.com',
@@ -457,7 +451,7 @@ describe('Auth (e2e)', () => {
         })
         .expect(201);
 
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'dupe@unknown.example.com',
@@ -468,7 +462,7 @@ describe('Auth (e2e)', () => {
     });
 
     it('rejects registration with a too-short password', () => {
-      return request(app.getHttpServer())
+      return apiRequest(app)
         .post('/auth/register')
         .send({
           email: 'shortpw@unknown.example.com',
@@ -495,6 +489,7 @@ describe('Auth rate limiting (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
 
@@ -512,7 +507,7 @@ describe('Auth rate limiting (e2e)', () => {
   });
 
   it('rejects the 6th /auth/login attempt within 60s from the same source with 429', async () => {
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/auth/register')
       .send({
         email: 'throttle-login@school.edu.tw',
@@ -522,13 +517,13 @@ describe('Auth rate limiting (e2e)', () => {
       .expect(201);
 
     for (let i = 0; i < 5; i++) {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/login')
         .send({ email: 'throttle-login@school.edu.tw', password: 'wrong' })
         .expect(401);
     }
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/auth/login')
       .send({ email: 'throttle-login@school.edu.tw', password: 'wrong' })
       .expect(429);
@@ -536,7 +531,7 @@ describe('Auth rate limiting (e2e)', () => {
 
   it('rejects the 6th /auth/register attempt within 60s from the same source with 429', async () => {
     for (let i = 0; i < 5; i++) {
-      await request(app.getHttpServer())
+      await apiRequest(app)
         .post('/auth/register')
         .send({
           email: `throttle-register-${i}@school.edu.tw`,
@@ -546,7 +541,7 @@ describe('Auth rate limiting (e2e)', () => {
         .expect(201);
     }
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/auth/register')
       .send({
         email: 'throttle-register-overflow@school.edu.tw',

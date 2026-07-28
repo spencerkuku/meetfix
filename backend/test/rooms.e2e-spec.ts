@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { join } from 'path';
 import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { serveUploads } from './../src/uploads/serve-uploads';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
+import { uploadFilePath } from './support/upload-file-path';
 import { Role } from '@prisma/client';
 
 // Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
@@ -54,6 +56,7 @@ describe('Rooms (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
+    setApiPrefix(app);
     serveUploads(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
@@ -75,7 +78,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('any authenticated User can list Rooms', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .get('/rooms')
       .set('Authorization', `Bearer ${userToken}`)
       .expect(200);
@@ -83,11 +86,11 @@ describe('Rooms (e2e)', () => {
   });
 
   it('rejects unauthenticated requests', () => {
-    return request(app.getHttpServer()).get('/rooms').expect(401);
+    return apiRequest(app).get('/rooms').expect(401);
   });
 
   it('rejects room creation by a non-Admin User', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${userToken}`)
       .field('name', 'A101')
@@ -97,7 +100,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('rejects room updates by a non-Admin User', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Update-Auth-Check')
@@ -105,9 +108,9 @@ describe('Rooms (e2e)', () => {
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/rooms/${createdBody.id}`)
       .set('Authorization', `Bearer ${userToken}`)
       .field('capacity', '99')
@@ -115,7 +118,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('rejects room deletion by a non-Admin User', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Delete-Auth-Check')
@@ -123,16 +126,16 @@ describe('Rooms (e2e)', () => {
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .delete(`/rooms/${createdBody.id}`)
       .set('Authorization', `Bearer ${userToken}`)
       .expect(403);
   });
 
   it('rejects a non-positive capacity with a clean 400, not a raw DB error', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Bad Capacity')
@@ -142,7 +145,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('Admin can create a Room with a photo, and the photo is retrievable', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'A101 會議室')
@@ -159,9 +162,11 @@ describe('Rooms (e2e)', () => {
       equipment: ['投影機', '白板'],
       requiresApproval: false,
     });
-    expect(body.imageUrl).toMatch(/^\/uploads\/rooms\/.+\.png$/);
-    createdUploadPaths.push(join(process.cwd(), body.imageUrl));
+    expect(body.imageUrl).toMatch(/^\/api\/uploads\/rooms\/.+\.png$/);
+    createdUploadPaths.push(uploadFilePath(body.imageUrl));
 
+    // Not apiRequest: imageUrl is already the full path the server
+    // returned (including the API prefix), not a bare route to prefix.
     const photoRes = await request(app.getHttpServer())
       .get(body.imageUrl)
       .expect(200);
@@ -169,7 +174,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('Admin can update a Room without replacing the photo', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'B202')
@@ -177,9 +182,9 @@ describe('Rooms (e2e)', () => {
       .attach('photo', PNG_BYTES, 'b202.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
 
-    const updated = await request(app.getHttpServer())
+    const updated = await apiRequest(app)
       .patch(`/rooms/${createdBody.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .field('capacity', '6')
@@ -191,7 +196,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('Admin can delete a Room', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'To Delete')
@@ -199,14 +204,14 @@ describe('Rooms (e2e)', () => {
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .delete(`/rooms/${createdBody.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(204);
 
-    const list = await request(app.getHttpServer())
+    const list = await apiRequest(app)
       .get('/rooms')
       .set('Authorization', `Bearer ${userToken}`)
       .expect(200);
@@ -215,7 +220,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('rejects a photo upload whose content is not a real image, regardless of declared filename/mimetype', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Fake Photo Room')
@@ -231,7 +236,7 @@ describe('Rooms (e2e)', () => {
     const svgPayload = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
     );
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'SVG XSS Room')
@@ -244,7 +249,7 @@ describe('Rooms (e2e)', () => {
   });
 
   it('serves uploaded photos with X-Content-Type-Options: nosniff', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Nosniff Check')
@@ -252,8 +257,9 @@ describe('Rooms (e2e)', () => {
       .attach('photo', PNG_BYTES, 'room.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(join(process.cwd(), createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
 
+    // Not apiRequest: imageUrl already includes the API prefix.
     const photoRes = await request(app.getHttpServer())
       .get(createdBody.imageUrl)
       .expect(200);

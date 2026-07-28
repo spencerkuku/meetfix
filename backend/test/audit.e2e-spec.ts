@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { Role } from '@prisma/client';
+import { setApiPrefix } from './../src/bootstrap';
+import { apiRequest } from './support/api-request';
 
 interface AuditLogEntryResponse {
   id: string;
@@ -53,6 +54,7 @@ describe('Audit Log (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -91,20 +93,20 @@ describe('Audit Log (e2e)', () => {
   });
 
   it('rejects reading the Audit Log as a non-ADMIN', () => {
-    return request(app.getHttpServer())
+    return apiRequest(app)
       .get('/audit-log')
       .set('Authorization', `Bearer ${userToken}`)
       .expect(403);
   });
 
   it('rejects unauthenticated reads', () => {
-    return request(app.getHttpServer()).get('/audit-log').expect(401);
+    return apiRequest(app).get('/audit-log').expect(401);
   });
 
   it('a Role change writes exactly one correctly-attributed entry', async () => {
     const target = await tokenFor('audit-target1@school.edu.tw', Role.USER);
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/admin/users/${target.id}/role`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ role: 'ROOM_MANAGER' })
@@ -120,7 +122,7 @@ describe('Audit Log (e2e)', () => {
 
   it('a Booking Approval (approve or reject) writes exactly one correctly-attributed entry', async () => {
     const requester = await tokenFor('audit-req1@school.edu.tw', Role.USER);
-    const created = await request(app.getHttpServer())
+    const created = await apiRequest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${requester.token}`)
       .send({
@@ -132,7 +134,7 @@ describe('Audit Log (e2e)', () => {
       .expect(201);
     const bookingId = (created.body as { id: string }).id;
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/bookings/${bookingId}/approve`)
       .set('Authorization', `Bearer ${roomManagerToken}`)
       .expect(200);
@@ -146,7 +148,7 @@ describe('Audit Log (e2e)', () => {
   });
 
   it('an Account Approval writes exactly one correctly-attributed entry', async () => {
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .post('/auth/register')
       .send({
         email: 'audit-pending@unknown.example.com',
@@ -159,7 +161,7 @@ describe('Audit Log (e2e)', () => {
       include: { account: true },
     });
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/admin/accounts/${pendingUser.account!.id}/approve`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ role: 'USER' })
@@ -177,7 +179,7 @@ describe('Audit Log (e2e)', () => {
 
   it('a Repair Status change writes exactly one correctly-attributed entry, but a reply-only update writes none', async () => {
     const reporter = await tokenFor('audit-reporter1@school.edu.tw', Role.USER);
-    const ticket = await request(app.getHttpServer())
+    const ticket = await apiRequest(app)
       .post('/repairs')
       .set('Authorization', `Bearer ${reporter.token}`)
       .field('location', '稽核測試地點')
@@ -186,13 +188,13 @@ describe('Audit Log (e2e)', () => {
       .expect(201);
     const ticketId = (ticket.body as { id: string }).id;
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/repairs/${ticketId}`)
       .set('Authorization', `Bearer ${maintenanceToken}`)
       .send({ adminReply: '純回覆，不改狀態' })
       .expect(200);
 
-    await request(app.getHttpServer())
+    await apiRequest(app)
       .patch(`/repairs/${ticketId}`)
       .set('Authorization', `Bearer ${maintenanceToken}`)
       .send({ status: 'IN_PROGRESS' })
@@ -206,7 +208,7 @@ describe('Audit Log (e2e)', () => {
   });
 
   it('ADMIN can read the accumulated Audit Log entries', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await apiRequest(app)
       .get('/audit-log')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
