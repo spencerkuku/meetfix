@@ -100,7 +100,13 @@ services:
         condition: service_healthy
 
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Same-origin: the frontend and API share this Caddy origin, so the
+        # built-in frontend needs no absolute API host baked in.
+        VITE_API_URL: ""
     restart: unless-stopped
     ports:
       - "80:80"
