@@ -1,5 +1,5 @@
 import { Room } from '../types';
-import { API_URL, authHeaders } from './http';
+import { API_URL, API_BASE_URL, authHeaders } from './http';
 
 interface ApiRoom {
   id: string;
@@ -45,7 +45,7 @@ function toFormData(input: Partial<RoomFormInput>, photo?: File): FormData {
 }
 
 export async function fetchRooms(): Promise<Room[]> {
-  const res = await fetch(`${API_URL}/rooms`, { headers: authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/rooms`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch rooms');
   const data: ApiRoom[] = await res.json();
   return data.map(toRoom);
@@ -55,7 +55,7 @@ export async function createRoom(
   input: RoomFormInput,
   photo: File,
 ): Promise<Room> {
-  const res = await fetch(`${API_URL}/rooms`, {
+  const res = await fetch(`${API_BASE_URL}/rooms`, {
     method: 'POST',
     headers: authHeaders(),
     body: toFormData(input, photo),
@@ -69,7 +69,7 @@ export async function updateRoomApi(
   input: Partial<RoomFormInput>,
   photo?: File,
 ): Promise<Room> {
-  const res = await fetch(`${API_URL}/rooms/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/rooms/${id}`, {
     method: 'PATCH',
     headers: authHeaders(),
     body: toFormData(input, photo),
@@ -79,7 +79,7 @@ export async function updateRoomApi(
 }
 
 export async function deleteRoomApi(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/rooms/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/rooms/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });

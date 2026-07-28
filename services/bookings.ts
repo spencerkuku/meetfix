@@ -1,5 +1,5 @@
 import { Booking } from '../types';
-import { API_URL, authHeaders } from './http';
+import { API_BASE_URL, authHeaders } from './http';
 
 export interface CreateBookingInput {
   roomId: string;
@@ -12,13 +12,13 @@ export interface CreateBookingInput {
 export class BookingConflictError extends Error {}
 
 export async function fetchBookings(): Promise<Booking[]> {
-  const res = await fetch(`${API_URL}/bookings`, { headers: authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/bookings`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch bookings');
   return res.json();
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<Booking> {
-  const res = await fetch(`${API_URL}/bookings`, {
+  const res = await fetch(`${API_BASE_URL}/bookings`, {
     method: 'POST',
     headers: authHeaders(true),
     body: JSON.stringify(input),
@@ -31,7 +31,7 @@ export async function createBooking(input: CreateBookingInput): Promise<Booking>
 }
 
 export async function cancelBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_URL}/bookings/${id}/cancel`, {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}/cancel`, {
     method: 'PATCH',
     headers: authHeaders(),
   });
@@ -40,7 +40,7 @@ export async function cancelBooking(id: string): Promise<Booking> {
 }
 
 export async function approveBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_URL}/bookings/${id}/approve`, {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}/approve`, {
     method: 'PATCH',
     headers: authHeaders(),
   });
@@ -49,7 +49,7 @@ export async function approveBooking(id: string): Promise<Booking> {
 }
 
 export async function rejectBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_URL}/bookings/${id}/reject`, {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}/reject`, {
     method: 'PATCH',
     headers: authHeaders(),
   });

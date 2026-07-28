@@ -1,6 +1,6 @@
 import { User } from '../types';
+import { API_BASE_URL } from './http';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const TOKEN_KEY = 'meetfix_token';
 
 export function getToken(): string | null {
@@ -16,14 +16,14 @@ export function clearToken(): void {
 }
 
 export function googleLoginUrl(): string {
-  return `${API_URL}/auth/google`;
+  return `${API_BASE_URL}/auth/google`;
 }
 
 // Exchanges the one-time code from the /auth/google/callback redirect for a
 // real session token — the JWT itself never appears in a URL this way.
 export async function exchangeLoginCode(code: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_URL}/auth/exchange`, {
+    const res = await fetch(`${API_BASE_URL}/auth/exchange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -43,7 +43,7 @@ export async function registerWithPassword(
   name: string,
   password: string,
 ): Promise<'ACTIVE' | 'PENDING'> {
-  const res = await fetch(`${API_URL}/auth/register`, {
+  const res = await fetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, name, password }),
@@ -60,7 +60,7 @@ export async function loginWithPassword(
   email: string,
   password: string,
 ): Promise<string> {
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -83,7 +83,7 @@ interface MeResponse {
 
 export async function fetchCurrentUser(token: string): Promise<User | null> {
   try {
-    const res = await fetch(`${API_URL}/auth/me`, {
+    const res = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return null;
@@ -106,7 +106,7 @@ export async function fetchCurrentUser(token: string): Promise<User | null> {
 // authorization URL to navigate the browser to directly — never routes the
 // session's own access token through a URL.
 export async function getGoogleLinkUrl(token: string): Promise<string> {
-  const res = await fetch(`${API_URL}/auth/google/link`, {
+  const res = await fetch(`${API_BASE_URL}/auth/google/link`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {

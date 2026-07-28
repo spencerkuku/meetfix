@@ -1,5 +1,5 @@
 import { AutoApprovedDomain, PendingAccount, User, UserRole } from '../types';
-import { API_URL, authHeaders } from './http';
+import { API_BASE_URL, authHeaders } from './http';
 
 interface ApiUser {
   id: string;
@@ -19,14 +19,14 @@ function toUser(u: ApiUser): User {
 }
 
 export async function fetchUsers(): Promise<User[]> {
-  const res = await fetch(`${API_URL}/admin/users`, { headers: authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/admin/users`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch users');
   const data: ApiUser[] = await res.json();
   return data.map(toUser);
 }
 
 export async function updateUserRole(id: string, role: UserRole): Promise<User> {
-  const res = await fetch(`${API_URL}/admin/users/${id}/role`, {
+  const res = await fetch(`${API_BASE_URL}/admin/users/${id}/role`, {
     method: 'PATCH',
     headers: authHeaders(true),
     body: JSON.stringify({ role }),
@@ -36,7 +36,7 @@ export async function updateUserRole(id: string, role: UserRole): Promise<User> 
 }
 
 export async function fetchPendingAccounts(): Promise<PendingAccount[]> {
-  const res = await fetch(`${API_URL}/admin/pending-accounts`, {
+  const res = await fetch(`${API_BASE_URL}/admin/pending-accounts`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch pending accounts');
@@ -44,7 +44,7 @@ export async function fetchPendingAccounts(): Promise<PendingAccount[]> {
 }
 
 export async function approveAccount(accountId: string, role: UserRole): Promise<void> {
-  const res = await fetch(`${API_URL}/admin/accounts/${accountId}/approve`, {
+  const res = await fetch(`${API_BASE_URL}/admin/accounts/${accountId}/approve`, {
     method: 'PATCH',
     headers: authHeaders(true),
     body: JSON.stringify({ role }),
@@ -53,7 +53,7 @@ export async function approveAccount(accountId: string, role: UserRole): Promise
 }
 
 export async function fetchAutoApprovedDomains(): Promise<AutoApprovedDomain[]> {
-  const res = await fetch(`${API_URL}/admin/auto-approved-domains`, {
+  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch auto-approved domains');
@@ -61,7 +61,7 @@ export async function fetchAutoApprovedDomains(): Promise<AutoApprovedDomain[]> 
 }
 
 export async function addAutoApprovedDomain(domain: string): Promise<AutoApprovedDomain> {
-  const res = await fetch(`${API_URL}/admin/auto-approved-domains`, {
+  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
     method: 'POST',
     headers: authHeaders(true),
     body: JSON.stringify({ domain }),
@@ -71,7 +71,7 @@ export async function addAutoApprovedDomain(domain: string): Promise<AutoApprove
 }
 
 export async function removeAutoApprovedDomain(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/admin/auto-approved-domains/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });

@@ -1,5 +1,5 @@
 import { RepairCategory, RepairTicket } from '../types';
-import { API_URL, authHeaders } from './http';
+import { API_URL, API_BASE_URL, authHeaders } from './http';
 
 export interface RepairTicketFormInput {
   roomId?: string;
@@ -33,7 +33,7 @@ export interface UpdateRepairTicketInput {
 }
 
 export async function fetchRepairs(): Promise<RepairTicket[]> {
-  const res = await fetch(`${API_URL}/repairs`, { headers: authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/repairs`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch repair tickets');
   const data: ApiRepairTicket[] = await res.json();
   return data.map(toRepairTicket);
@@ -52,7 +52,7 @@ export async function createRepairTicket(
   if (input.userPhone) formData.append('userPhone', input.userPhone);
   if (photo) formData.append('photo', photo);
 
-  const res = await fetch(`${API_URL}/repairs`, {
+  const res = await fetch(`${API_BASE_URL}/repairs`, {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
@@ -65,7 +65,7 @@ export async function updateRepairTicket(
   id: string,
   updates: UpdateRepairTicketInput,
 ): Promise<RepairTicket> {
-  const res = await fetch(`${API_URL}/repairs/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/repairs/${id}`, {
     method: 'PATCH',
     headers: authHeaders(true),
     body: JSON.stringify(updates),
@@ -75,7 +75,7 @@ export async function updateRepairTicket(
 }
 
 export async function fetchRepairCategories(): Promise<RepairCategory[]> {
-  const res = await fetch(`${API_URL}/repair-categories`, {
+  const res = await fetch(`${API_BASE_URL}/repair-categories`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch repair categories');
@@ -85,7 +85,7 @@ export async function fetchRepairCategories(): Promise<RepairCategory[]> {
 export async function createRepairCategory(
   name: string,
 ): Promise<RepairCategory> {
-  const res = await fetch(`${API_URL}/repair-categories`, {
+  const res = await fetch(`${API_BASE_URL}/repair-categories`, {
     method: 'POST',
     headers: authHeaders(true),
     body: JSON.stringify({ name }),
@@ -95,7 +95,7 @@ export async function createRepairCategory(
 }
 
 export async function deleteRepairCategory(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/repair-categories/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/repair-categories/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
