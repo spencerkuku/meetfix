@@ -42,6 +42,22 @@ function domainAndAncestors(domain: string): string[] {
   return labels.map((_, i) => labels.slice(i).join('.'));
 }
 
+// True when `hostedDomain` is the school's Google Workspace domain itself,
+// or a dot-bounded subdomain of it (e.g. `stu.school.edu.tw` for a
+// `school.edu.tw` config) — schools commonly split students/staff across
+// Workspace subdomains, and there's only ever one configured school domain
+// here (unlike Auto-Approved Domain's per-entry opt-in), so subdomain trust
+// is unconditional rather than a toggle.
+function isSchoolWorkspaceDomain(
+  hostedDomain: string | undefined,
+  schoolDomain: string,
+): boolean {
+  return (
+    !!hostedDomain &&
+    (hostedDomain === schoolDomain || hostedDomain.endsWith(`.${schoolDomain}`))
+  );
+}
+
 @Injectable()
 export class AuthService {
   // One-time codes handed to the browser instead of the JWT itself, so the
@@ -62,7 +78,7 @@ export class AuthService {
 
   async loginWithGoogle(profile: GoogleProfile): Promise<{ user: User }> {
     const schoolDomain = this.config.get<string>('SCHOOL_GOOGLE_DOMAIN');
-    if (!schoolDomain || profile.hostedDomain !== schoolDomain) {
+    if (!schoolDomain || !isSchoolWorkspaceDomain(profile.hostedDomain, schoolDomain)) {
       throw new UnauthorizedException(
         'Google account is not part of the school Workspace domain',
       );
@@ -147,7 +163,7 @@ export class AuthService {
     const userId = this.verifyGoogleLinkState(state);
 
     const schoolDomain = this.config.get<string>('SCHOOL_GOOGLE_DOMAIN');
-    if (!schoolDomain || profile.hostedDomain !== schoolDomain) {
+    if (!schoolDomain || !isSchoolWorkspaceDomain(profile.hostedDomain, schoolDomain)) {
       throw new UnauthorizedException(
         'Google account is not part of the school Workspace domain',
       );

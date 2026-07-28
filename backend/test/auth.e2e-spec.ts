@@ -97,6 +97,39 @@ describe('Auth (e2e)', () => {
     expect(userCount).toBe(0);
   });
 
+  it('accepts a Google account under a subdomain of the school Workspace domain', async () => {
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({
+        email: 'student@stu.school.edu.tw',
+        hostedDomain: 'stu.school.edu.tw',
+      }),
+    );
+
+    expect(user.email).toBe('student@stu.school.edu.tw');
+  });
+
+  it('accepts a multi-level subdomain of the school Workspace domain', async () => {
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({
+        email: 'student@dept.stu.school.edu.tw',
+        hostedDomain: 'dept.stu.school.edu.tw',
+      }),
+    );
+
+    expect(user.email).toBe('student@dept.stu.school.edu.tw');
+  });
+
+  it('never treats a lookalike domain as a subdomain of the school Workspace domain', async () => {
+    await expect(
+      authService.loginWithGoogle(
+        schoolProfile({ hostedDomain: 'evilschool.edu.tw' }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const userCount = await prisma.user.count();
+    expect(userCount).toBe(0);
+  });
+
   it('provisions a new User + Account with Role USER on first login, and encrypts the refresh token at rest', async () => {
     const { user } = await authService.loginWithGoogle(schoolProfile());
 
@@ -342,6 +375,40 @@ describe('Auth (e2e)', () => {
           schoolProfile({ email: 'dual@school.edu.tw', hostedDomain: 'gmail.com' }),
         ),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('allows linking a Google account under a subdomain of the school Workspace domain', async () => {
+      // Registration's own domain check is a separate code path (Auto-
+      // Approved Domain) from the Google hd check under test here — give
+      // this exact subdomain its own Auto-Approved entry so the password
+      // Account this test links onto is ACTIVE and can log in.
+      await prisma.autoApprovedDomain.upsert({
+        where: { domain: 'stu.school.edu.tw' },
+        create: { domain: 'stu.school.edu.tw' },
+        update: {},
+      });
+      const { accessToken } = await registerAndLoginPasswordUser(
+        'dual-subdomain@stu.school.edu.tw',
+      );
+      const linkRes = await apiRequest(app)
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await authService.linkGoogleAccount(
+        state,
+        schoolProfile({
+          email: 'dual-subdomain@stu.school.edu.tw',
+          hostedDomain: 'stu.school.edu.tw',
+          googleSub: 'google-sub-link-subdomain',
+        }),
+      );
+
+      const account = await prisma.account.findUnique({
+        where: { userId: (await prisma.user.findUniqueOrThrow({ where: { email: 'dual-subdomain@stu.school.edu.tw' } })).id },
+      });
+      expect(account?.googleSub).toBe('google-sub-link-subdomain');
     });
 
     it('rejects a tampered or expired link state', async () => {
