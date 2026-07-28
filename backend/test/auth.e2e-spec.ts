@@ -146,6 +146,33 @@ describe('Auth (e2e)', () => {
     expect(account?.googleRefreshToken).toEqual(expect.any(String));
   });
 
+  it('stores the Google profile photo as avatarUrl on first login', async () => {
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({ avatarUrl: 'https://lh3.googleusercontent.com/photo-1' }),
+    );
+
+    expect(user.avatarUrl).toBe('https://lh3.googleusercontent.com/photo-1');
+  });
+
+  it('leaves avatarUrl null when the Google profile has no photo', async () => {
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({ avatarUrl: undefined }),
+    );
+
+    expect(user.avatarUrl).toBeNull();
+  });
+
+  it('refreshes avatarUrl to the latest photo on a repeat login', async () => {
+    await authService.loginWithGoogle(
+      schoolProfile({ avatarUrl: 'https://lh3.googleusercontent.com/old-photo' }),
+    );
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({ avatarUrl: 'https://lh3.googleusercontent.com/new-photo' }),
+    );
+
+    expect(user.avatarUrl).toBe('https://lh3.googleusercontent.com/new-photo');
+  });
+
   it('reuses the existing Account on a repeat login instead of creating a duplicate', async () => {
     const first = await authService.loginWithGoogle(schoolProfile());
     const second = await authService.loginWithGoogle(
@@ -283,6 +310,61 @@ describe('Auth (e2e)', () => {
       expect(account?.googleSub).toBe('google-sub-link-1');
       expect(account?.googleRefreshToken).not.toBe('refresh-token-1');
       expect(account?.googleRefreshToken).toEqual(expect.any(String));
+    });
+
+    it('populates avatarUrl from the linked Google profile', async () => {
+      const { userId, accessToken } = await registerAndLoginPasswordUser();
+      const linkRes = await apiRequest(app)
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const state = extractState((linkRes.body as { url: string }).url);
+
+      await authService.linkGoogleAccount(
+        state,
+        schoolProfile({
+          email: 'dual@school.edu.tw',
+          googleSub: 'google-sub-link-avatar',
+          avatarUrl: 'https://lh3.googleusercontent.com/linked-photo',
+        }),
+      );
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(user.avatarUrl).toBe('https://lh3.googleusercontent.com/linked-photo');
+    });
+
+    it('overwrites a previously stored avatarUrl on a repeat link of the same Google identity', async () => {
+      const { userId, accessToken } = await registerAndLoginPasswordUser(
+        'dual-relink@school.edu.tw',
+      );
+      const firstLinkRes = await apiRequest(app)
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      await authService.linkGoogleAccount(
+        extractState((firstLinkRes.body as { url: string }).url),
+        schoolProfile({
+          email: 'dual-relink@school.edu.tw',
+          googleSub: 'google-sub-relink',
+          avatarUrl: 'https://lh3.googleusercontent.com/old-linked-photo',
+        }),
+      );
+
+      const secondLinkRes = await apiRequest(app)
+        .get('/auth/google/link')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      await authService.linkGoogleAccount(
+        extractState((secondLinkRes.body as { url: string }).url),
+        schoolProfile({
+          email: 'dual-relink@school.edu.tw',
+          googleSub: 'google-sub-relink',
+          avatarUrl: 'https://lh3.googleusercontent.com/new-linked-photo',
+        }),
+      );
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(user.avatarUrl).toBe('https://lh3.googleusercontent.com/new-linked-photo');
     });
 
     it('makes a Google login work afterwards, resolving to the same User', async () => {
@@ -534,6 +616,22 @@ describe('Auth (e2e)', () => {
         })
         .expect(201);
       expect((res.body as { status: string }).status).toBe('PENDING');
+    });
+
+    it('never sets avatarUrl for a password-only registration', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'no-avatar@unknown.example.com',
+          name: '無頭貼使用者',
+          password: 'password123',
+        })
+        .expect(201);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'no-avatar@unknown.example.com' },
+      });
+      expect(user.avatarUrl).toBeNull();
     });
 
     it('rejects login for a PENDING account with a clear error, not a silent failure', async () => {

@@ -96,7 +96,11 @@ export class AuthService {
     if (existingAccount) {
       user = await this.prisma.user.update({
         where: { id: existingAccount.userId },
-        data: { name: profile.name, email: profile.email },
+        data: {
+          name: profile.name,
+          email: profile.email,
+          avatarUrl: profile.avatarUrl ?? null,
+        },
       });
       if (encryptedRefreshToken) {
         await this.prisma.account.update({
@@ -111,6 +115,7 @@ export class AuthService {
             email: profile.email,
             name: profile.name,
             role: Role.USER,
+            avatarUrl: profile.avatarUrl ?? null,
             account: {
               create: {
                 provider: AccountProvider.GOOGLE,
@@ -201,7 +206,12 @@ export class AuthService {
       },
     });
 
-    return { user };
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: profile.avatarUrl ?? null },
+    });
+
+    return { user: updatedUser };
   }
 
   private signGoogleLinkState(userId: string): string {

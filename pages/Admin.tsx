@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useData } from '../App';
 import { UserRole } from '../types';
 import { Button } from '../components/Button';
+import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe } from 'lucide-react';
 
@@ -118,7 +119,7 @@ export const Admin: React.FC = () => {
                 {users.map(user => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="p-4 flex items-center gap-3">
-                      <img src={user.avatar} alt="" className="w-8 h-8 rounded-full bg-gray-200" />
+                      <Avatar avatarUrl={user.avatarUrl} name={user.name} size={16} className="w-8 h-8 rounded-full bg-gray-200 text-slate-500" />
                       <span className="font-medium text-slate-700">{user.name}</span>
                     </td>
                     <td className="p-4 text-slate-500">{user.email}</td>

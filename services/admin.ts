@@ -6,6 +6,7 @@ interface ApiUser {
   email: string;
   name: string;
   role: UserRole;
+  avatarUrl: string | null;
 }
 
 function toUser(u: ApiUser): User {
@@ -14,7 +15,7 @@ function toUser(u: ApiUser): User {
     email: u.email,
     name: u.name,
     role: u.role,
-    avatar: `https://i.pravatar.cc/150?u=${u.id}`,
+    avatarUrl: u.avatarUrl,
   };
 }
 

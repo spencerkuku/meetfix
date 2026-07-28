@@ -9,4 +9,5 @@ export interface GoogleProfile {
   name: string;
   hostedDomain?: string;
   refreshToken?: string;
+  avatarUrl?: string;
 }

@@ -45,6 +45,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       name: profile.displayName,
       hostedDomain: (profile._json as { hd?: string }).hd,
       refreshToken,
+      avatarUrl: profile.photos?.[0]?.value,
     };
   }
 }

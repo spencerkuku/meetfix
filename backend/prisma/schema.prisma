@@ -35,6 +35,11 @@ model User {
   email     String   @unique
   name      String
   role      Role     @default(USER)
+  // Real Google profile photo URL, captured/refreshed on every Google login
+  // or account link. Null for password-only Users (and Google profiles with
+  // no photo) — the frontend shows a fixed generic icon in that case, never
+  // a synthesized placeholder. See issue #18.
+  avatarUrl String?
   createdAt DateTime @default(now())
 
   account        Account?

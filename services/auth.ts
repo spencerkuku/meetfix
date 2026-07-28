@@ -78,6 +78,7 @@ interface MeResponse {
   email: string;
   name: string;
   role: User['role'];
+  avatarUrl: string | null;
   googleLinked: boolean;
 }
 
@@ -94,7 +95,7 @@ export async function fetchCurrentUser(token: string): Promise<User | null> {
       email: data.email,
       role: data.role,
       googleLinked: data.googleLinked,
-      avatar: `https://i.pravatar.cc/150?u=${data.id}`,
+      avatarUrl: data.avatarUrl,
     };
   } catch {
     return null;

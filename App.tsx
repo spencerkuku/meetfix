@@ -24,10 +24,10 @@ import { fetchAuditLog } from './services/audit';
 
 // --- Mock Data ---
 const MOCK_USERS: User[] = [
-  { id: 'u1', name: '陳小美', email: 'alice@corp.com', role: UserRole.USER, avatar: 'https://i.pravatar.cc/150?u=a', class: '資訊三甲', phone: '0912-345-678' },
-  { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatar: 'https://i.pravatar.cc/150?u=b', phone: '0922-333-444' },
-  { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatar: 'https://i.pravatar.cc/150?u=c' },
-  { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatar: 'https://i.pravatar.cc/150?u=d' },
+  { id: 'u1', name: '陳小美', email: 'alice@corp.com', role: UserRole.USER, avatarUrl: null, class: '資訊三甲', phone: '0912-345-678' },
+  { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatarUrl: null, phone: '0922-333-444' },
+  { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatarUrl: null },
+  { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatarUrl: null },
 ];
 
 // --- Context ---

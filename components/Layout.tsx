@@ -22,6 +22,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { Button } from './Button';
+import { Avatar } from './Avatar';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, logout, updateUser } = useData();
@@ -245,7 +246,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 title="點擊編輯個人資料"
               >
                 <div className="relative">
-                   <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full bg-slate-200 object-cover" />
+                   <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={24} className="w-10 h-10 rounded-full bg-slate-200 text-slate-500" />
                    <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow opacity-0 group-hover:opacity-100 transition-opacity">
                       <Edit2 size={10} className="text-slate-500"/>
                    </div>
@@ -278,7 +279,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
          </div>
          {currentUser ? (
              <div onClick={handleOpenProfile} className="cursor-pointer">
-                <img src={currentUser.avatar} className="w-8 h-8 rounded-full border border-slate-200"/>
+                <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={18} className="w-8 h-8 rounded-full border border-slate-200 bg-slate-100 text-slate-500" />
              </div>
          ) : (
              <Button variant="ghost" size="sm" onClick={() => navigate('/')}><UserCircle/></Button>
@@ -314,7 +315,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
             <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
               <div className="flex justify-center mb-6">
-                <img src={currentUser.avatar} alt="" className="w-24 h-24 rounded-full bg-slate-100 object-cover ring-4 ring-slate-50" />
+                <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={48} className="w-24 h-24 rounded-full bg-slate-100 ring-4 ring-slate-50 text-slate-400" />
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">

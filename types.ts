@@ -12,7 +12,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  avatar: string;
+  avatarUrl: string | null;
   class?: string;
   phone?: string;
   googleLinked?: boolean;
