@@ -11,7 +11,7 @@ export class RoomsService {
     return this.prisma.room.findMany({ orderBy: { createdAt: 'asc' } });
   }
 
-  create(input: RoomInput, imageUrl: string): Promise<Room> {
+  create(input: RoomInput, imageUrl: string | undefined): Promise<Room> {
     return this.prisma.room.create({ data: { ...input, imageUrl } });
   }
 

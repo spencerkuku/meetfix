@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -34,6 +37,12 @@ export class BookingsController {
   @Patch(':id/cancel')
   cancel(@CurrentUser() user: User, @Param('id') id: string) {
     return this.bookingsService.cancel(id, user.id, user.role);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.bookingsService.remove(id, user.id, user.role);
   }
 
   @Patch(':id/approve')

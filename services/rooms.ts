@@ -4,15 +4,17 @@ import { API_URL, API_BASE_URL, authHeaders } from './http';
 interface ApiRoom {
   id: string;
   name: string;
-  capacity: number;
+  location: string;
+  capacity: number | null;
   equipment: string[];
-  imageUrl: string;
+  imageUrl: string | null;
   requiresApproval: boolean;
 }
 
 export interface RoomFormInput {
   name: string;
-  capacity: number;
+  location: string;
+  capacity?: number;
   equipment: string[];
   requiresApproval: boolean;
 }
@@ -22,15 +24,18 @@ export interface RoomFormInput {
 function toRoom(room: ApiRoom): Room {
   return {
     ...room,
-    imageUrl: room.imageUrl.startsWith('http')
-      ? room.imageUrl
-      : `${API_URL}${room.imageUrl}`,
+    imageUrl: room.imageUrl
+      ? (room.imageUrl.startsWith('http')
+          ? room.imageUrl
+          : `${API_URL}${room.imageUrl}`)
+      : undefined,
   };
 }
 
 function toFormData(input: Partial<RoomFormInput>, photo?: File): FormData {
   const formData = new FormData();
   if (input.name !== undefined) formData.append('name', input.name);
+  if (input.location !== undefined) formData.append('location', input.location);
   if (input.capacity !== undefined) {
     formData.append('capacity', String(input.capacity));
   }
@@ -53,7 +58,7 @@ export async function fetchRooms(): Promise<Room[]> {
 
 export async function createRoom(
   input: RoomFormInput,
-  photo: File,
+  photo?: File,
 ): Promise<Room> {
   const res = await fetch(`${API_BASE_URL}/rooms`, {
     method: 'POST',

@@ -83,6 +83,7 @@ export class BookingsService {
 
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
+      where: { deletedAt: null },
       orderBy: { startTime: 'asc' },
       include: { user: { select: { name: true } } },
     });
@@ -113,9 +114,7 @@ export class BookingsService {
       throw new BadRequestException('startTime cannot be in the past');
     }
     if (endTime.getTime() - startTime.getTime() > MAX_BOOKING_DURATION_MS) {
-      throw new BadRequestException(
-        'A Booking cannot span more than 24 hours',
-      );
+      throw new BadRequestException('A Booking cannot span more than 24 hours');
     }
 
     const room = await this.prisma.room.findUnique({
@@ -138,6 +137,7 @@ export class BookingsService {
             where: {
               roomId: dto.roomId,
               status: { in: ACTIVE_STATUSES },
+              deletedAt: null,
               startTime: { lt: endTime },
               endTime: { gt: startTime },
             },
@@ -207,7 +207,7 @@ export class BookingsService {
     role: Role,
   ): Promise<BookingWithUserName> {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
-    if (!booking) {
+    if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
     if (booking.userId !== userId && role !== Role.ADMIN) {
@@ -227,7 +227,7 @@ export class BookingsService {
     // overwritten back to CANCELLED, and vice versa — see the CANCELLED-
     // resurrection race this closes.
     const result = await this.prisma.booking.updateMany({
-      where: { id, status: { in: ACTIVE_STATUSES } },
+      where: { id, status: { in: ACTIVE_STATUSES }, deletedAt: null },
       data: { status: BookingStatus.CANCELLED },
     });
     if (result.count === 0) {
@@ -248,6 +248,35 @@ export class BookingsService {
     return withUserName(bookingWithUser);
   }
 
+  // Soft-deletes a future Booking regardless of its current status — a
+  // separate action from cancel(), which only changes `status`. See
+  // CONTEXT.md / issue #19: this makes a Booking the owner no longer wants
+  // disappear from all reads, without touching BookingStatus semantics.
+  async remove(id: string, userId: string, role: Role): Promise<void> {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking || booking.deletedAt) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (booking.userId !== userId && role !== Role.ADMIN) {
+      throw new ForbiddenException('You can only delete your own Bookings');
+    }
+    if (booking.startTime < new Date()) {
+      throw new BadRequestException(
+        'Cannot delete a past or in-progress Booking',
+      );
+    }
+    const result = await this.prisma.booking.updateMany({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('This Booking was already deleted');
+    }
+    if (ACTIVE_STATUSES.includes(booking.status)) {
+      await this.removeCalendarEvent(booking);
+    }
+  }
+
   // Booking Approval: a ROOM_MANAGER (or ADMIN) deciding a PENDING_APPROVAL
   // Booking. See CONTEXT.md — distinct from Account Approval.
   async approve(id: string, actorId: string): Promise<BookingWithUserName> {
@@ -264,7 +293,7 @@ export class BookingsService {
     outcome: typeof BookingStatus.CONFIRMED | typeof BookingStatus.REJECTED,
   ): Promise<BookingWithUserName> {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
-    if (!booking) {
+    if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
     const updated = await this.audit.runAuditedTransaction(
@@ -276,7 +305,11 @@ export class BookingsService {
         // event race in one atomic guard, mirroring create()'s existing
         // Serializable-transaction correctness.
         const result = await tx.booking.updateMany({
-          where: { id, status: BookingStatus.PENDING_APPROVAL },
+          where: {
+            id,
+            status: BookingStatus.PENDING_APPROVAL,
+            deletedAt: null,
+          },
           data: { status: outcome },
         });
         if (result.count === 0) {

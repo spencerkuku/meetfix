@@ -43,7 +43,7 @@ An email domain (e.g. `school.edu.tw`) on an Admin-maintained list. A password r
 ### Rooms & Bookings
 
 **Room**:
-A physical bookable space (classroom, meeting room, etc.), with a capacity, equipment list, and a flag for whether Bookings against it require approval.
+A physical bookable space (classroom, meeting room, etc.), with a location, and optionally a capacity, equipment list, and photo, plus a flag for whether Bookings against it require approval. Only a name and location are required to create one.
 
 **Booking**:
 A claim on a Room for a specific time range, made by a User. Identified by Room + time range, not by title.
@@ -58,10 +58,13 @@ A ROOM_MANAGER's act of setting a `PENDING_APPROVAL` Booking to `CONFIRMED` or `
 **Slot Conflict**:
 The condition where a new Booking's time range overlaps an existing Booking in `CONFIRMED` or `PENDING_APPROVAL` status on the same Room. Always rejected at creation time — never surfaced as a warning to resolve later.
 
+**Booking Deletion**:
+The owner (or an ADMIN) removing a future Booking from all views regardless of its current `Booking Status`. Distinct from cancelling: cancelling only moves an active Booking to `CANCELLED`, while deletion makes any future Booking — active or already `CANCELLED`/`REJECTED` — disappear entirely. Implemented as a soft delete (a `deletedAt` timestamp); a past or in-progress Booking cannot be deleted.
+
 ### Repairs
 
 **Repair Ticket**:
-A report of a facility problem tied to a Room (or a free-text location, for shared spaces without a Room record), filed by a User.
+A report of a facility problem at a free-text location, filed by a User. Not tied to a Room record.
 _Avoid_: Repair Request, Maintenance Ticket
 
 **Repair Status**:

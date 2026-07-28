@@ -21,9 +21,10 @@ const PNG_BYTES = Buffer.from(
 interface RoomResponse {
   id: string;
   name: string;
-  capacity: number;
+  location: string;
+  capacity: number | null;
   equipment: string[];
-  imageUrl: string;
+  imageUrl: string | null;
   requiresApproval: boolean;
 }
 
@@ -94,6 +95,7 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${userToken}`)
       .field('name', 'A101')
+      .field('location', '1F')
       .field('capacity', '10')
       .attach('photo', PNG_BYTES, 'room.png')
       .expect(403);
@@ -104,11 +106,12 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Update-Auth-Check')
+      .field('location', '1F')
       .field('capacity', '5')
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl!));
 
     await apiRequest(app)
       .patch(`/rooms/${createdBody.id}`)
@@ -122,11 +125,12 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Delete-Auth-Check')
+      .field('location', '1F')
       .field('capacity', '5')
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl!));
 
     await apiRequest(app)
       .delete(`/rooms/${createdBody.id}`)
@@ -139,6 +143,7 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Bad Capacity')
+      .field('location', '1F')
       .field('capacity', '0')
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(400);
@@ -149,6 +154,7 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'A101 會議室')
+      .field('location', '1F')
       .field('capacity', '10')
       .field('equipment', '投影機, 白板')
       .field('requiresApproval', 'false')
@@ -163,12 +169,12 @@ describe('Rooms (e2e)', () => {
       requiresApproval: false,
     });
     expect(body.imageUrl).toMatch(/^\/api\/uploads\/rooms\/.+\.png$/);
-    createdUploadPaths.push(uploadFilePath(body.imageUrl));
+    createdUploadPaths.push(uploadFilePath(body.imageUrl!));
 
     // Not apiRequest: imageUrl is already the full path the server
     // returned (including the API prefix), not a bare route to prefix.
     const photoRes = await request(app.getHttpServer())
-      .get(body.imageUrl)
+      .get(body.imageUrl!)
       .expect(200);
     expect(photoRes.body).toEqual(PNG_BYTES);
   });
@@ -178,11 +184,12 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'B202')
+      .field('location', '1F')
       .field('capacity', '4')
       .attach('photo', PNG_BYTES, 'b202.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl!));
 
     const updated = await apiRequest(app)
       .patch(`/rooms/${createdBody.id}`)
@@ -200,11 +207,12 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'To Delete')
+      .field('location', '1F')
       .field('capacity', '2')
       .attach('photo', PNG_BYTES, 'x.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl!));
 
     await apiRequest(app)
       .delete(`/rooms/${createdBody.id}`)
@@ -224,6 +232,7 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Fake Photo Room')
+      .field('location', '1F')
       .field('capacity', '10')
       .attach('photo', Buffer.from('not-a-real-image'), {
         filename: 'room.png',
@@ -240,6 +249,7 @@ describe('Rooms (e2e)', () => {
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'SVG XSS Room')
+      .field('location', '1F')
       .field('capacity', '10')
       .attach('photo', svgPayload, {
         filename: 'x.svg',
@@ -248,20 +258,63 @@ describe('Rooms (e2e)', () => {
       .expect(400);
   });
 
+  it('Admin can create a Room with only a name and location (#19)', async () => {
+    const res = await apiRequest(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'Minimal Room')
+      .field('location', '3F 儲藏室旁')
+      .expect(201);
+
+    const body = res.body as RoomResponse;
+    expect(body).toMatchObject({
+      name: 'Minimal Room',
+      location: '3F 儲藏室旁',
+      capacity: null,
+      imageUrl: null,
+    });
+  });
+
+  it('rejects Room creation without a location', () => {
+    return apiRequest(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'No Location Room')
+      .expect(400);
+  });
+
+  it('a Room created without capacity persists capacity as null, not 0', async () => {
+    const res = await apiRequest(app)
+      .post('/rooms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .field('name', 'No Capacity Room')
+      .field('location', '2F')
+      .expect(201);
+    const createdBody = res.body as RoomResponse;
+
+    const list = await apiRequest(app)
+      .get('/rooms')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    const listBody = list.body as RoomResponse[];
+    expect(listBody.find((r) => r.id === createdBody.id)?.capacity).toBeNull();
+  });
+
   it('serves uploaded photos with X-Content-Type-Options: nosniff', async () => {
     const created = await apiRequest(app)
       .post('/rooms')
       .set('Authorization', `Bearer ${adminToken}`)
       .field('name', 'Nosniff Check')
+      .field('location', '1F')
       .field('capacity', '3')
       .attach('photo', PNG_BYTES, 'room.png')
       .expect(201);
     const createdBody = created.body as RoomResponse;
-    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl));
+    createdUploadPaths.push(uploadFilePath(createdBody.imageUrl!));
 
     // Not apiRequest: imageUrl already includes the API prefix.
     const photoRes = await request(app.getHttpServer())
-      .get(createdBody.imageUrl)
+      .get(createdBody.imageUrl!)
       .expect(200);
     expect(photoRes.headers['x-content-type-options']).toBe('nosniff');
   });

@@ -15,7 +15,8 @@ export const RoomManagement: React.FC = () => {
   // Form State
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [capacity, setCapacity] = useState(10);
+  const [location, setLocation] = useState('');
+  const [capacity, setCapacity] = useState('');
   const [equipment, setEquipment] = useState('');
   const [imagePreview, setImagePreview] = useState<string>('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -24,7 +25,8 @@ export const RoomManagement: React.FC = () => {
   const resetForm = () => {
     setEditingRoomId(null);
     setName('');
-    setCapacity(10);
+    setLocation('');
+    setCapacity('');
     setEquipment('');
     setImagePreview('');
     setPhotoFile(null);
@@ -34,9 +36,10 @@ export const RoomManagement: React.FC = () => {
   const handleEditRoom = (room: Room) => {
     setEditingRoomId(room.id);
     setName(room.name);
-    setCapacity(room.capacity);
+    setLocation(room.location);
+    setCapacity(room.capacity !== null ? String(room.capacity) : '');
     setEquipment(room.equipment.join(', '));
-    setImagePreview(room.imageUrl);
+    setImagePreview(room.imageUrl ?? '');
     setPhotoFile(null);
     setRequiresApproval(room.requiresApproval);
     setShowModal(true);
@@ -58,18 +61,15 @@ export const RoomManagement: React.FC = () => {
     e.preventDefault();
 
     const equipmentList = equipment.split(',').map(s => s.trim()).filter(Boolean);
+    const capacityValue = capacity.trim() ? parseInt(capacity, 10) : undefined;
 
     setSubmitting(true);
     try {
       if (editingRoomId) {
-        await updateRoom(editingRoomId, { name, capacity, equipment: equipmentList, requiresApproval }, photoFile ?? undefined);
+        await updateRoom(editingRoomId, { name, location, capacity: capacityValue, equipment: equipmentList, requiresApproval }, photoFile ?? undefined);
         success("會議室資料更新成功");
       } else {
-        if (!photoFile) {
-          error("請上傳會議室照片");
-          return;
-        }
-        await addRoom({ name, capacity, equipment: equipmentList, requiresApproval }, photoFile);
+        await addRoom({ name, location, capacity: capacityValue, equipment: equipmentList, requiresApproval }, photoFile ?? undefined);
         success("已新增會議室");
       }
       setShowModal(false);
@@ -105,9 +105,16 @@ export const RoomManagement: React.FC = () => {
         {rooms.map(room => (
           <div key={room.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow group relative">
             <div className="h-40 bg-slate-200 relative overflow-hidden">
-               <img src={room.imageUrl} alt={room.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+               {room.imageUrl ? (
+                 <img src={room.imageUrl} alt={room.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+               ) : (
+                 <div className="w-full h-full flex items-center justify-center text-slate-300">
+                   <ImageIcon size={40} />
+                 </div>
+               )}
                <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/60 to-transparent p-4">
                  <h3 className="text-white font-bold text-lg">{room.name}</h3>
+                 <p className="text-white/80 text-xs">{room.location}</p>
                </div>
                {room.requiresApproval && (
                  <div className="absolute top-2 left-2 bg-yellow-500 text-white text-[10px] px-2 py-1 rounded-full font-bold shadow-sm">
@@ -134,7 +141,7 @@ export const RoomManagement: React.FC = () => {
             </div>
             <div className="p-4 space-y-4">
                <div className="flex items-center gap-4 text-sm text-slate-600">
-                  <div className="flex items-center gap-1"><Users size={16}/> {room.capacity} 人座</div>
+                  <div className="flex items-center gap-1"><Users size={16}/> {room.capacity !== null ? `${room.capacity} 人座` : '容納人數未設定'}</div>
                </div>
                
                <div>
@@ -174,25 +181,37 @@ export const RoomManagement: React.FC = () => {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">會議室名稱 *</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={name} 
-                  onChange={e => setName(e.target.value)} 
+                <input
+                  required
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
                   placeholder="例如：D405 創意發想室"
-                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">容納人數 *</label>
-                <input 
-                  required 
-                  type="number" 
+                <label className="block text-sm font-medium text-slate-700 mb-1">地點 *</label>
+                <input
+                  required
+                  type="text"
+                  value={location}
+                  onChange={e => setLocation(e.target.value)}
+                  placeholder="例如：4樓 D405"
+                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">容納人數</label>
+                <input
+                  type="number"
                   min="1"
-                  value={capacity} 
-                  onChange={e => setCapacity(parseInt(e.target.value))} 
-                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                  value={capacity}
+                  onChange={e => setCapacity(e.target.value)}
+                  placeholder="尚未設定"
+                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
 
@@ -208,7 +227,7 @@ export const RoomManagement: React.FC = () => {
               </div>
 
               <div>
-                 <label className="block text-sm font-medium text-slate-700 mb-2">會議室圖片 (上傳)</label>
+                 <label className="block text-sm font-medium text-slate-700 mb-2">會議室圖片 (選填)</label>
                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors relative">
                     <input 
                       type="file" 

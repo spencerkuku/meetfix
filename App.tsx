@@ -17,7 +17,7 @@ import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode, registerWithPassword as registerWithPasswordApi, loginWithPassword as loginWithPasswordApi } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
-import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
+import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
 import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
@@ -48,6 +48,7 @@ interface DataContextType {
   logout: () => void;
   addBooking: (input: CreateBookingInput) => Promise<void>;
   cancelBooking: (id: string) => Promise<void>;
+  deleteBooking: (id: string) => Promise<void>;
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
   addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
@@ -67,7 +68,7 @@ interface DataContextType {
   auditLog: AuditLogEntry[];
   addRepairCategory: (name: string) => Promise<void>;
   removeRepairCategory: (id: string) => Promise<void>;
-  addRoom: (input: RoomFormInput, photo: File) => Promise<void>;
+  addRoom: (input: RoomFormInput, photo?: File) => Promise<void>;
   updateRoom: (id: string, input: Partial<RoomFormInput>, photo?: File) => Promise<void>;
   removeRoom: (id: string) => Promise<void>;
 }
@@ -182,6 +183,11 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setBookings(prev => prev.map(b => b.id === id ? booking : b));
   };
 
+  const deleteBooking = async (id: string) => {
+    await deleteBookingApi(id);
+    setBookings(prev => prev.filter(b => b.id !== id));
+  };
+
   const approveBooking = async (id: string) => {
     const booking = await approveBookingApi(id);
     setBookings(prev => prev.map(b => b.id === id ? booking : b));
@@ -245,7 +251,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setRepairCategories(prev => prev.filter(c => c.id !== id));
   };
 
-  const addRoom = async (input: RoomFormInput, photo: File) => {
+  const addRoom = async (input: RoomFormInput, photo?: File) => {
     const room = await createRoom(input, photo);
     setRooms(prev => [...prev, room]);
   };
@@ -264,7 +270,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
       loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
-      addBooking, cancelBooking, approveBooking, rejectBooking,
+      addBooking, cancelBooking, deleteBooking, approveBooking, rejectBooking,
       addRepair, updateRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, pendingAccounts, approveAccount,

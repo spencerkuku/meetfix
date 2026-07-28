@@ -5,10 +5,31 @@ import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { BookingConflictError } from '../services/bookings';
-import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, XCircle, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
+
+// The day/week grid runs 8:00-20:00 in 30-minute increments — slot 0 is
+// 8:00, slot 1 is 8:30, ... slot 23 is 19:30 (24 slots).
+const SLOTS_PER_DAY = 24;
+const GRID_START_HOUR = 8;
+
+function slotToTime(slot: number): { hour: number; minute: number } {
+  return { hour: GRID_START_HOUR + Math.floor(slot / 2), minute: (slot % 2) * 30 };
+}
+
+function formatSlotTime(slot: number): string {
+  const { hour, minute } = slotToTime(slot);
+  return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+}
+
+function slotDate(day: Date, slot: number): Date {
+  const { hour, minute } = slotToTime(slot);
+  const d = new Date(day);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
 
 export const Bookings: React.FC = () => {
-  const { rooms, bookings, addBooking, cancelBooking, currentUser } = useData();
+  const { rooms, bookings, addBooking, cancelBooking, deleteBooking, currentUser } = useData();
   const { success, error, warning, info } = useToast();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'HISTORY'>('CALENDAR');
   const [view, setView] = useState<CalendarViewType>('WEEK');
@@ -28,8 +49,8 @@ export const Bookings: React.FC = () => {
 
   // Drag Selection (Create) State
   const [isSelecting, setIsSelecting] = useState(false);
-  const [selectStart, setSelectStart] = useState<{day: Date, hour: number} | null>(null);
-  const [selectEnd, setSelectEnd] = useState<{day: Date, hour: number} | null>(null);
+  const [selectStart, setSelectStart] = useState<{day: Date, slot: number} | null>(null);
+  const [selectEnd, setSelectEnd] = useState<{day: Date, slot: number} | null>(null);
 
   // Booking Form State
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
@@ -110,11 +131,11 @@ export const Bookings: React.FC = () => {
     else setSelectedRoom(rooms[0]?.id || '');
   };
 
-  const openCreateModal = (defaultDate?: string, startH?: number, endH?: number) => {
+  const openCreateModal = (defaultDate?: string, startTimeStr?: string, endTimeStr?: string) => {
     resetForm();
     if (defaultDate) setDate(defaultDate);
-    if (startH !== undefined) setStartTime(`${startH.toString().padStart(2,'0')}:00`);
-    if (endH !== undefined) setEndTime(`${endH.toString().padStart(2,'0')}:00`);
+    if (startTimeStr) setStartTime(startTimeStr);
+    if (endTimeStr) setEndTime(endTimeStr);
     setShowModal(true);
   };
 
@@ -171,25 +192,23 @@ export const Bookings: React.FC = () => {
 
   // --- Drag Selection (Create) Logic ---
 
-  const handleMouseDown = (day: Date, hour: number) => {
+  const handleMouseDown = (day: Date, slot: number) => {
     if (!currentUser || currentUser.role === UserRole.GUEST) return;
-    
+
     // Strictly Prevent selecting past time
-    const slotTime = new Date(day);
-    slotTime.setHours(hour);
     const currentTime = new Date();
-    if (slotTime < currentTime) return;
+    if (slotDate(day, slot) < currentTime) return;
 
     setIsSelecting(true);
-    setSelectStart({ day, hour });
-    setSelectEnd({ day, hour });
+    setSelectStart({ day, slot });
+    setSelectEnd({ day, slot });
   };
 
-  const handleMouseEnter = (day: Date, hour: number) => {
+  const handleMouseEnter = (day: Date, slot: number) => {
     if (isSelecting && selectStart) {
       // Only allow dragging within the same day for simplicity
       if (day.toDateString() === selectStart.day.toDateString()) {
-        setSelectEnd({ day, hour });
+        setSelectEnd({ day, slot });
       }
     }
   };
@@ -197,13 +216,13 @@ export const Bookings: React.FC = () => {
   const handleMouseUp = () => {
     if (isSelecting && selectStart && selectEnd) {
       setIsSelecting(false);
-      
-      // Calculate start and end times
-      const startH = Math.min(selectStart.hour, selectEnd.hour);
-      const endH = Math.max(selectStart.hour, selectEnd.hour) + 1; // Add 1 hour for exclusive end
-      
+
+      // Calculate start and end times (30-minute slots)
+      const minSlot = Math.min(selectStart.slot, selectEnd.slot);
+      const maxSlot = Math.max(selectStart.slot, selectEnd.slot);
+
       const dateStr = selectStart.day.toISOString().split('T')[0];
-      openCreateModal(dateStr, startH, endH);
+      openCreateModal(dateStr, formatSlotTime(minSlot), formatSlotTime(maxSlot + 1));
     }
     setSelectStart(null);
     setSelectEnd(null);
@@ -347,7 +366,7 @@ export const Bookings: React.FC = () => {
         return d;
     });
 
-    const timeSlots = Array.from({length: 13}, (_, i) => 8 + i); 
+    const timeSlots = Array.from({length: SLOTS_PER_DAY}, (_, i) => i);
 
     return (
       <div className="overflow-x-auto border border-gray-200 rounded-lg select-none" onMouseLeave={() => setIsSelecting(false)}>
@@ -360,54 +379,54 @@ export const Bookings: React.FC = () => {
              </div>
            ))}
 
-           {timeSlots.map(hour => (
-             <React.Fragment key={hour}>
-               <div className="border-r border-b p-2 text-xs text-slate-400 text-center bg-white sticky left-0 z-10 h-16 flex items-center justify-center">
-                 {hour}:00
+           {timeSlots.map(slot => (
+             <React.Fragment key={slot}>
+               <div className="border-r border-b p-2 text-xs text-slate-400 text-center bg-white sticky left-0 z-10 h-8 flex items-center justify-center">
+                 {slot % 2 === 0 ? formatSlotTime(slot) : ''}
                </div>
-               
+
                {weekDays.map((day, i) => {
                  const dayStr = day.toISOString().split('T')[0];
-                 const slotDate = new Date(day);
-                 slotDate.setHours(hour);
-                 const isPast = slotDate < now;
-                 
+                 const thisSlotStart = slotDate(day, slot);
+                 const thisSlotEnd = new Date(thisSlotStart.getTime() + 30 * 60000);
+                 const isPast = thisSlotStart < now;
+
                  // Current Time Line Calculation
                  const isToday = day.toDateString() === now.toDateString();
-                 const isCurrentHour = hour === now.getHours();
-                 const minutePct = (now.getMinutes() / 60) * 100;
+                 const isCurrentSlot = now >= thisSlotStart && now < thisSlotEnd;
+                 const minutePct = ((now.getMinutes() % 30) / 30) * 100;
 
                  const slotBookings = displayedBookings.filter(b => {
                     const bStart = new Date(b.startTime);
                     const bEnd = new Date(b.endTime);
                     const bDate = bStart.toISOString().split('T')[0];
-                    return bDate === dayStr && bStart.getHours() <= hour && bEnd.getHours() > hour;
+                    return bDate === dayStr && bStart < thisSlotEnd && bEnd > thisSlotStart;
                  });
 
                  let isSelected = false;
                  if (isSelecting && selectStart && selectEnd) {
                     if (day.toDateString() === selectStart.day.toDateString()) {
-                        const minH = Math.min(selectStart.hour, selectEnd.hour);
-                        const maxH = Math.max(selectStart.hour, selectEnd.hour);
-                        if (hour >= minH && hour <= maxH) {
+                        const minSlot = Math.min(selectStart.slot, selectEnd.slot);
+                        const maxSlot = Math.max(selectStart.slot, selectEnd.slot);
+                        if (slot >= minSlot && slot <= maxSlot) {
                             isSelected = true;
                         }
                     }
                  }
 
                  return (
-                   <div 
-                      key={`${dayStr}-${hour}`} 
-                      className={`border-r border-b p-1 relative h-16 transition-colors 
+                   <div
+                      key={`${dayStr}-${slot}`}
+                      className={`border-r border-b p-1 relative h-8 transition-colors
                         ${isPast ? 'bg-[repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6_10px,#e5e7eb_10px,#e5e7eb_20px)] cursor-not-allowed' : (isSelected ? 'bg-blue-200/50' : 'bg-white hover:bg-gray-50')}`}
-                      
-                      onMouseDown={() => handleMouseDown(day, hour)}
-                      onMouseEnter={() => handleMouseEnter(day, hour)}
+
+                      onMouseDown={() => handleMouseDown(day, slot)}
+                      onMouseEnter={() => handleMouseEnter(day, slot)}
                       onMouseUp={handleMouseUp}
                    >
                       {/* RED TIME LINE */}
-                      {isToday && isCurrentHour && (
-                        <div 
+                      {isToday && isCurrentSlot && (
+                        <div
                             className="absolute left-0 w-full border-t-2 border-red-500 z-30 pointer-events-none"
                             style={{ top: `${minutePct}%` }}
                         >
@@ -417,8 +436,8 @@ export const Bookings: React.FC = () => {
 
                       {isSelected && (
                          <div className="absolute inset-0 bg-blue-500/10 pointer-events-none flex items-center justify-center text-xs text-blue-600 font-bold">
-                           {selectStart?.hour === hour && "開始"}
-                           {selectEnd?.hour === hour && "結束"}
+                           {selectStart?.slot === slot && "開始"}
+                           {selectEnd?.slot === slot && "結束"}
                          </div>
                       )}
 
@@ -583,6 +602,8 @@ export const Bookings: React.FC = () => {
                 <tbody className="divide-y divide-gray-100">
                   {myBookings.map(booking => {
                       const isFuture = new Date(booking.endTime) > new Date();
+                      const canDelete = new Date(booking.startTime) > new Date();
+                      const canCancel = isFuture && (booking.status === 'CONFIRMED' || booking.status === 'PENDING_APPROVAL');
                       const statusMap = {
                           'CONFIRMED': { label: '已確認', color: 'bg-green-100 text-green-800' },
                           'PENDING_APPROVAL': { label: '待審核', color: 'bg-yellow-100 text-yellow-800' },
@@ -609,29 +630,51 @@ export const Bookings: React.FC = () => {
                             </span>
                         </td>
                         <td className="p-4">
-                            {isFuture && booking.status !== 'REJECTED' && (
+                            {(isFuture && booking.status !== 'REJECTED') || canDelete ? (
                                 <div className="flex gap-2">
-                                    <button onClick={() => openEditModal(booking)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded" title="查看詳情">
-                                        <Eye size={16}/>
-                                    </button>
-                                    <button
-                                        onClick={async () => {
-                                            if(window.confirm("確定要取消此預約？")) {
-                                                try {
-                                                    await cancelBooking(booking.id);
-                                                    success("預約已取消");
-                                                } catch {
-                                                    error("取消失敗,請稍後再試");
+                                    {isFuture && booking.status !== 'REJECTED' && (
+                                        <button onClick={() => openEditModal(booking)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded" title="查看詳情">
+                                            <Eye size={16}/>
+                                        </button>
+                                    )}
+                                    {canCancel && (
+                                        <button
+                                            onClick={async () => {
+                                                if(window.confirm("確定要取消此預約？")) {
+                                                    try {
+                                                        await cancelBooking(booking.id);
+                                                        success("預約已取消");
+                                                    } catch {
+                                                        error("取消失敗,請稍後再試");
+                                                    }
                                                 }
-                                            }
-                                        }}
-                                        className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded"
-                                        title="取消預約"
-                                    >
-                                        <Trash2 size={16}/>
-                                    </button>
+                                            }}
+                                            className="text-orange-400 hover:text-orange-600 hover:bg-orange-50 p-1 rounded"
+                                            title="取消預約"
+                                        >
+                                            <XCircle size={16}/>
+                                        </button>
+                                    )}
+                                    {canDelete && (
+                                        <button
+                                            onClick={async () => {
+                                                if(window.confirm("確定要刪除此預約？此動作無法復原。")) {
+                                                    try {
+                                                        await deleteBooking(booking.id);
+                                                        success("預約已刪除");
+                                                    } catch {
+                                                        error("刪除失敗,請稍後再試");
+                                                    }
+                                                }
+                                            }}
+                                            className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded"
+                                            title="刪除預約"
+                                        >
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    )}
                                 </div>
-                            )}
+                            ) : null}
                         </td>
                         </tr>
                       );
@@ -776,7 +819,13 @@ export const Bookings: React.FC = () => {
                                     `}
                                 >
                                     <div className="w-24 h-20 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
-                                        <img src={room.imageUrl} alt={room.name} className="w-full h-full object-cover" />
+                                        {room.imageUrl ? (
+                                            <img src={room.imageUrl} alt={room.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                                <Monitor size={24} />
+                                            </div>
+                                        )}
                                     </div>
                                     
                                     <div className="flex-1 min-w-0">
@@ -797,8 +846,8 @@ export const Bookings: React.FC = () => {
                                         </div>
                                         
                                         <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                                            <span className="flex items-center gap-1"><Users size={12}/> {room.capacity}人</span>
-                                            <span className="flex items-center gap-1"><MapPin size={12}/> {room.id.substring(0,3).toUpperCase()}區</span>
+                                            <span className="flex items-center gap-1"><Users size={12}/> {room.capacity !== null ? `${room.capacity}人` : '人數未設定'}</span>
+                                            <span className="flex items-center gap-1"><MapPin size={12}/> {room.location}</span>
                                         </div>
 
                                         <div className="mt-2 flex flex-wrap gap-1">

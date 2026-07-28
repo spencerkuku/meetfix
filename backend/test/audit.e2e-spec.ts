@@ -73,6 +73,7 @@ describe('Audit Log (e2e)', () => {
     const room = await prisma.room.create({
       data: {
         name: '稽核測試室',
+        location: '1F',
         capacity: 4,
         equipment: [],
         imageUrl: '/uploads/rooms/x.png',

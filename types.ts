@@ -21,9 +21,10 @@ export interface User {
 export interface Room {
   id: string;
   name: string;
-  capacity: number;
+  location: string;
+  capacity: number | null;
   equipment: string[];
-  imageUrl: string;
+  imageUrl?: string;
   requiresApproval: boolean;
 }
 

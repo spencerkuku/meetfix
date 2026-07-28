@@ -80,18 +80,20 @@ model Account {
   createdAt DateTime @default(now())
 }
 
-// Room: a physical bookable space. See CONTEXT.md.
+// Room: a physical bookable space. See CONTEXT.md. Only `name` and
+// `location` are required at creation — `capacity`, `equipment`, and
+// `imageUrl` may be filled in later via update.
 model Room {
   id               String   @id @default(cuid())
   name             String
-  capacity         Int
+  location         String
+  capacity         Int?
   equipment        String[]
-  imageUrl         String
+  imageUrl         String?
   requiresApproval Boolean  @default(false)
   createdAt        DateTime @default(now())
 
-  bookings      Booking[]
-  repairTickets RepairTicket[]
+  bookings Booking[]
 }
 
 // Booking Status: see CONTEXT.md. CONFIRMED and PENDING_APPROVAL both hold
@@ -121,6 +123,11 @@ model Booking {
   // PENDING_APPROVAL Bookings, password-Account Users, or if the sync
   // itself failed. See CONTEXT.md, issue #11.
   googleEventId String?
+  // Soft delete: set by the owner or an ADMIN removing a future Booking
+  // from view, regardless of its `status`. Distinct from `status` — a
+  // deleted Booking keeps whatever status it had (e.g. CANCELLED) and is
+  // simply excluded from all reads. See issue #19.
+  deletedAt DateTime?
 
   @@index([roomId, startTime, endTime])
 }
@@ -144,16 +151,10 @@ model RepairCategory {
   createdAt DateTime @default(now())
 }
 
-// Repair Ticket: a report of a facility problem tied to a Room (roomId set)
-// or a free-text location (roomId null, for shared spaces without a Room
-// record). `location` is always a human-readable label — for a real Room
-// it's a copy of the Room's name at submission time, so the ticket still
-// reads sensibly even if the Room is later renamed or removed. See
-// CONTEXT.md.
+// Repair Ticket: a report of a facility problem at a free-text location,
+// filed by a User. See CONTEXT.md.
 model RepairTicket {
   id          String       @id @default(cuid())
-  roomId      String?
-  room        Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
   location    String
   userId      String
   user        User         @relation(fields: [userId], references: [id])

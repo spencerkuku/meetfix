@@ -115,6 +115,7 @@ describe('Bookings (e2e)', () => {
     const openRoom = await prisma.room.create({
       data: {
         name: 'Open Room',
+        location: '1F',
         capacity: 4,
         equipment: [],
         imageUrl: '/uploads/rooms/x.png',
@@ -126,6 +127,7 @@ describe('Bookings (e2e)', () => {
     const approvalRoom = await prisma.room.create({
       data: {
         name: 'Approval Room',
+        location: '2F',
         capacity: 4,
         equipment: [],
         imageUrl: '/uploads/rooms/y.png',
@@ -288,6 +290,165 @@ describe('Bookings (e2e)', () => {
       .patch(`/bookings/${createdBody.id}/cancel`)
       .set('Authorization', `Bearer ${otherUserToken}`)
       .expect(403);
+  });
+
+  describe('Booking deletion (#19)', () => {
+    it('the owner can delete their own future CANCELLED Booking, and it disappears from the listing', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'To delete', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      await apiRequest(app)
+        .patch(`/bookings/${createdBody.id}/cancel`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      const listing = await apiRequest(app)
+        .get('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      const ids = (listing.body as BookingResponse[]).map((b) => b.id);
+      expect(ids).not.toContain(createdBody.id);
+    });
+
+    it('the owner can delete a still-active (CONFIRMED) future Booking without cancelling it first, releasing its slot', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Delete while confirmed', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+      expect(createdBody.status).toBe('CONFIRMED');
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .send({ roomId: openRoomId, title: 'Takes the freed slot', ...slot })
+        .expect(201);
+    });
+
+    it('an ADMIN can delete a future Booking that belongs to someone else', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Admin deletes this', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(204);
+    });
+
+    it('rejects deleting a future Booking that belongs to someone else', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Not yours to delete', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .expect(403);
+    });
+
+    it('rejects deleting a future Booking as a ROOM_MANAGER who does not own it', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Manager cannot delete', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(403);
+    });
+
+    it('rejects deleting a past Booking', async () => {
+      const past = await prisma.booking.create({
+        data: {
+          roomId: openRoomId,
+          userId,
+          title: 'Already happened',
+          startTime: new Date('2020-01-01T00:00:00.000Z'),
+          endTime: new Date('2020-01-01T01:00:00.000Z'),
+          status: 'CANCELLED',
+        },
+      });
+
+      await apiRequest(app)
+        .delete(`/bookings/${past.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(400);
+    });
+
+    it('rejects deleting a Booking that is currently in progress', async () => {
+      const inProgress = await prisma.booking.create({
+        data: {
+          roomId: openRoomId,
+          userId,
+          title: 'Happening right now',
+          startTime: new Date(Date.now() - 30 * 60 * 1000),
+          endTime: new Date(Date.now() + 30 * 60 * 1000),
+          status: 'CONFIRMED',
+        },
+      });
+
+      await apiRequest(app)
+        .delete(`/bookings/${inProgress.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(400);
+    });
+
+    it('404s deleting a Booking that was already deleted', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Delete twice', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      await apiRequest(app)
+        .delete(`/bookings/${createdBody.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
+    });
+
+    it('404s deleting a Booking that does not exist', () => {
+      return apiRequest(app)
+        .delete('/bookings/not-a-real-booking')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
+    });
   });
 
   it('rejects creating a Booking where endTime is not after startTime', () => {
@@ -522,7 +683,9 @@ describe('Bookings (e2e)', () => {
         .send({ roomId: approvalRoomId, title: 'Notify submit', ...slot })
         .expect(201);
 
-      expect(notifications.notifyBookingSubmittedForApproval).toHaveBeenCalledTimes(1);
+      expect(
+        notifications.notifyBookingSubmittedForApproval,
+      ).toHaveBeenCalledTimes(1);
     });
 
     it('does not notify Room Manager(s) for an auto-confirmed Booking', async () => {
@@ -533,7 +696,9 @@ describe('Bookings (e2e)', () => {
         .send({ roomId: openRoomId, title: 'No approval needed', ...slot })
         .expect(201);
 
-      expect(notifications.notifyBookingSubmittedForApproval).not.toHaveBeenCalled();
+      expect(
+        notifications.notifyBookingSubmittedForApproval,
+      ).not.toHaveBeenCalled();
     });
 
     it('notifies the requester of a Booking Approval decision', async () => {
@@ -585,12 +750,8 @@ describe('Bookings (e2e)', () => {
         .expect(200);
 
       expect(notifications.notifyBookingCancelled).toHaveBeenCalledTimes(1);
-      const [, , , cancelledByUserId] = notifications.notifyBookingCancelled.mock.calls[0] as [
-        unknown,
-        unknown,
-        unknown,
-        string,
-      ];
+      const [, , , cancelledByUserId] = notifications.notifyBookingCancelled
+        .mock.calls[0] as [unknown, unknown, unknown, string];
       expect(cancelledByUserId).toBe(userId);
     });
   });
@@ -628,7 +789,11 @@ describe('Bookings (e2e)', () => {
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId, title: 'Calendar sync on approve', ...slot })
+        .send({
+          roomId: approvalRoomId,
+          title: 'Calendar sync on approve',
+          ...slot,
+        })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
@@ -648,7 +813,11 @@ describe('Bookings (e2e)', () => {
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Calendar removal on cancel', ...slot })
+        .send({
+          roomId: openRoomId,
+          title: 'Calendar removal on cancel',
+          ...slot,
+        })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
@@ -665,7 +834,11 @@ describe('Bookings (e2e)', () => {
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId, title: 'Calendar removal on reject', ...slot })
+        .send({
+          roomId: approvalRoomId,
+          title: 'Calendar removal on reject',
+          ...slot,
+        })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 

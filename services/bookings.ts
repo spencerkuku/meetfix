@@ -39,6 +39,14 @@ export async function cancelBooking(id: string): Promise<Booking> {
   return res.json();
 }
 
+export async function deleteBooking(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to delete booking');
+}
+
 export async function approveBooking(id: string): Promise<Booking> {
   const res = await fetch(`${API_BASE_URL}/bookings/${id}/approve`, {
     method: 'PATCH',

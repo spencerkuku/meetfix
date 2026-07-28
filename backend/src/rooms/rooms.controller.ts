@@ -43,24 +43,22 @@ export class RoomsController {
   @UseInterceptors(FileInterceptor('photo', roomPhotoUploadOptions))
   async create(
     @Body() body: RoomFormBody,
-    @UploadedFile() photo: Express.Multer.File,
+    @UploadedFile() photo?: Express.Multer.File,
   ) {
     const input = parseRoomForm(body);
-    if (!input.name || input.capacity === undefined) {
-      throw new BadRequestException('name and capacity are required');
+    if (!input.name || !input.location) {
+      throw new BadRequestException('name and location are required');
     }
-    if (!photo) {
-      throw new BadRequestException('A room photo is required');
-    }
-    const filename = await persistRoomPhoto(photo);
+    const filename = photo ? await persistRoomPhoto(photo) : undefined;
     return this.roomsService.create(
       {
         name: input.name,
+        location: input.location,
         capacity: input.capacity,
         equipment: input.equipment ?? [],
         requiresApproval: input.requiresApproval ?? false,
       } satisfies RoomInput,
-      roomPhotoUrl(filename),
+      filename ? roomPhotoUrl(filename) : undefined,
     );
   }
 
