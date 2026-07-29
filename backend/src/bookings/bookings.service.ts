@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,6 +19,7 @@ import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
 import { withUserName } from '../common/with-user-name';
 import { ACTIVE_BOOKING_STATUSES, isActiveBooking } from './booking-status';
+import { assertOwnerOrAdmin } from './assert-owner-or-admin';
 
 // A Booking's startTime may not be more than this far in the past — small
 // enough to tolerate ordinary clock skew between client and server, not to
@@ -206,9 +206,12 @@ export class BookingsService {
     if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
-    if (booking.userId !== userId && role !== Role.ADMIN) {
-      throw new ForbiddenException('You can only cancel your own Bookings');
-    }
+    assertOwnerOrAdmin(
+      booking,
+      userId,
+      role,
+      'You can only cancel your own Bookings',
+    );
     if (!isActiveBooking(booking.status)) {
       throw new BadRequestException('This Booking is already inactive');
     }
@@ -250,9 +253,12 @@ export class BookingsService {
     if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
-    if (booking.userId !== userId && role !== Role.ADMIN) {
-      throw new ForbiddenException('You can only delete your own Bookings');
-    }
+    assertOwnerOrAdmin(
+      booking,
+      userId,
+      role,
+      'You can only delete your own Bookings',
+    );
     if (booking.startTime < new Date()) {
       throw new BadRequestException(
         'Cannot delete a past or in-progress Booking',
