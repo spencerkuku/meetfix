@@ -5,7 +5,7 @@ import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { BookingConflictError } from '../services/bookings';
-import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, XCircle, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
 
 // The day/week grid runs 8:00-20:00 in 30-minute increments — slot 0 is
 // 8:00, slot 1 is 8:30, ... slot 23 is 19:30 (24 slots).
@@ -29,7 +29,7 @@ function slotDate(day: Date, slot: number): Date {
 }
 
 export const Bookings: React.FC = () => {
-  const { rooms, bookings, addBooking, cancelBooking, deleteBooking, currentUser } = useData();
+  const { rooms, bookings, addBooking, deleteBooking, currentUser } = useData();
   const { success, error, warning, info } = useToast();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'HISTORY'>('CALENDAR');
   const [view, setView] = useState<CalendarViewType>('WEEK');
@@ -152,7 +152,7 @@ export const Bookings: React.FC = () => {
   // time can be set at creation — there is no reschedule/edit endpoint yet).
   const openEditModal = (booking: Booking) => {
     if (!currentUser) return;
-    // Permissions check: only the owner or an Admin can view/cancel
+    // Permissions check: only the owner or an Admin can view/delete
     if (booking.userId !== currentUser.id && currentUser.role !== UserRole.ADMIN) return;
 
     const start = new Date(booking.startTime);
@@ -615,7 +615,6 @@ export const Bookings: React.FC = () => {
                   {myBookings.map(booking => {
                       const isFuture = new Date(booking.endTime) > new Date();
                       const canDelete = new Date(booking.startTime) > new Date();
-                      const canCancel = isFuture && (booking.status === 'CONFIRMED' || booking.status === 'PENDING_APPROVAL');
                       const statusMap = {
                           'CONFIRMED': { label: '已確認', color: 'bg-green-100 text-green-800' },
                           'PENDING_APPROVAL': { label: '待審核', color: 'bg-yellow-100 text-yellow-800' },
@@ -647,24 +646,6 @@ export const Bookings: React.FC = () => {
                                     {isFuture && booking.status !== 'REJECTED' && (
                                         <button onClick={() => openEditModal(booking)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded" title="查看詳情">
                                             <Eye size={16}/>
-                                        </button>
-                                    )}
-                                    {canCancel && (
-                                        <button
-                                            onClick={async () => {
-                                                if(window.confirm("確定要取消此預約？")) {
-                                                    try {
-                                                        await cancelBooking(booking.id);
-                                                        success("預約已取消");
-                                                    } catch {
-                                                        error("取消失敗,請稍後再試");
-                                                    }
-                                                }
-                                            }}
-                                            className="text-orange-400 hover:text-orange-600 hover:bg-orange-50 p-1 rounded"
-                                            title="取消預約"
-                                        >
-                                            <XCircle size={16}/>
                                         </button>
                                     )}
                                     {canDelete && (
@@ -751,7 +732,7 @@ export const Bookings: React.FC = () => {
             <div className="px-8 py-5 border-b bg-slate-50 flex justify-between items-center">
               <div>
                  <h3 className="font-bold text-xl text-slate-800">{editingBookingId ? '預約詳情' : '預約會議室'}</h3>
-                 <p className="text-sm text-slate-500 mt-1">{editingBookingId ? '此預約無法修改時間或會議室,如需變更請取消後重新預約' : '請設定時間並選擇可用的會議室'}</p>
+                 <p className="text-sm text-slate-500 mt-1">{editingBookingId ? '此預約無法修改時間或會議室,如需變更請刪除後重新預約' : '請設定時間並選擇可用的會議室'}</p>
               </div>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full p-1 transition-colors"><X/></button>
             </div>

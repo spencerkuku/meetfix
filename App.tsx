@@ -17,7 +17,7 @@ import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode, registerWithPassword as registerWithPasswordApi, loginWithPassword as loginWithPasswordApi } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
-import { fetchBookings, createBooking, cancelBooking as cancelBookingApi, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
+import { fetchBookings, createBooking, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
 import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
@@ -47,7 +47,6 @@ interface DataContextType {
   loginWithPassword: (email: string, password: string) => Promise<void>;
   logout: () => void;
   addBooking: (input: CreateBookingInput) => Promise<void>;
-  cancelBooking: (id: string) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
@@ -178,11 +177,6 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setBookings(prev => [...prev, booking]);
   };
 
-  const cancelBooking = async (id: string) => {
-    const booking = await cancelBookingApi(id);
-    setBookings(prev => prev.map(b => b.id === id ? booking : b));
-  };
-
   const deleteBooking = async (id: string) => {
     await deleteBookingApi(id);
     setBookings(prev => prev.filter(b => b.id !== id));
@@ -270,7 +264,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
       loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
-      addBooking, cancelBooking, deleteBooking, approveBooking, rejectBooking,
+      addBooking, deleteBooking, approveBooking, rejectBooking,
       addRepair, updateRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, pendingAccounts, approveAccount,

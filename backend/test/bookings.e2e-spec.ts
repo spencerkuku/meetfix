@@ -38,7 +38,7 @@ describe('Bookings (e2e)', () => {
   const notifications = {
     notifyBookingSubmittedForApproval: jest.fn(),
     notifyBookingDecision: jest.fn(),
-    notifyBookingCancelled: jest.fn(),
+    notifyBookingDeleted: jest.fn(),
   };
   // Same rationale as `notifications` above.
   const calendar = {
@@ -254,44 +254,8 @@ describe('Bookings (e2e)', () => {
       .expect(409);
   });
 
-  it('cancelling a Booking releases its slot for a new request', async () => {
-    const slot = nextSlot();
-    const created = await apiRequest(app)
-      .post('/bookings')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ roomId: openRoomId, title: 'To cancel', ...slot })
-      .expect(201);
-    const createdBody = created.body as BookingResponse;
-
-    await apiRequest(app)
-      .patch(`/bookings/${createdBody.id}/cancel`)
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(200);
-
-    await apiRequest(app)
-      .post('/bookings')
-      .set('Authorization', `Bearer ${otherUserToken}`)
-      .send({ roomId: openRoomId, title: 'Takes the freed slot', ...slot })
-      .expect(201);
-  });
-
-  it('rejects cancelling a Booking that belongs to someone else', async () => {
-    const slot = nextSlot();
-    const created = await apiRequest(app)
-      .post('/bookings')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ roomId: openRoomId, title: 'Not yours', ...slot })
-      .expect(201);
-    const createdBody = created.body as BookingResponse;
-
-    await apiRequest(app)
-      .patch(`/bookings/${createdBody.id}/cancel`)
-      .set('Authorization', `Bearer ${otherUserToken}`)
-      .expect(403);
-  });
-
   describe('Booking deletion (#19)', () => {
-    it('the owner can delete their own future CANCELLED Booking, and it disappears from the listing', async () => {
+    it('the owner can delete their own future already-CANCELLED Booking, and it disappears from the listing', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -300,10 +264,13 @@ describe('Bookings (e2e)', () => {
         .expect(201);
       const createdBody = created.body as BookingResponse;
 
-      await apiRequest(app)
-        .patch(`/bookings/${createdBody.id}/cancel`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .expect(200);
+      // Simulates a Booking that reached CANCELLED status via historical
+      // data (no live action produces this status anymore) — deletion must
+      // still work regardless of the Booking's current status.
+      await prisma.booking.update({
+        where: { id: createdBody.id },
+        data: { status: 'CANCELLED' },
+      });
 
       await apiRequest(app)
         .delete(`/bookings/${createdBody.id}`)
@@ -318,7 +285,7 @@ describe('Bookings (e2e)', () => {
       expect(ids).not.toContain(createdBody.id);
     });
 
-    it('the owner can delete a still-active (CONFIRMED) future Booking without cancelling it first, releasing its slot', async () => {
+    it('the owner can delete a still-active (CONFIRMED) future Booking, releasing its slot', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -439,6 +406,32 @@ describe('Bookings (e2e)', () => {
         .delete(`/bookings/${createdBody.id}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(404);
+    });
+
+    it('two racing remove() calls on the same Booking result in exactly one success and one 409 Conflict', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Delete race', ...slot })
+        .expect(201);
+      const createdBody = created.body as BookingResponse;
+
+      // Both requests pass the initial findUnique before either commits its
+      // updateMany — the loser's `where: { deletedAt: null }` then matches
+      // zero rows, so it must be rejected with 409, not silently no-op or
+      // succeed a second time.
+      const [firstRes, secondRes] = await Promise.all([
+        apiRequest(app)
+          .delete(`/bookings/${createdBody.id}`)
+          .set('Authorization', `Bearer ${userToken}`),
+        apiRequest(app)
+          .delete(`/bookings/${createdBody.id}`)
+          .set('Authorization', `Bearer ${userToken}`),
+      ]);
+
+      const statuses = [firstRes.status, secondRes.status].sort();
+      expect(statuses).toEqual([204, 409]);
     });
 
     it('404s deleting a Booking that does not exist', () => {
@@ -626,31 +619,33 @@ describe('Bookings (e2e)', () => {
         .expect(409);
     });
 
-    it('a cancel racing an approve on the same Booking never resurrects CANCELLED back to CONFIRMED', async () => {
+    it('a remove racing an approve on the same Booking always soft-deletes it, and approve only wins if it committed first', async () => {
       const id = await createPending();
 
-      const [cancelRes, approveRes] = await Promise.all([
+      const [removeRes, approveRes] = await Promise.all([
         apiRequest(app)
-          .patch(`/bookings/${id}/cancel`)
+          .delete(`/bookings/${id}`)
           .set('Authorization', `Bearer ${userToken}`),
         apiRequest(app)
           .patch(`/bookings/${id}/approve`)
           .set('Authorization', `Bearer ${roomManagerToken}`),
       ]);
 
-      // Whichever write commits first at the database wins; the loser must
-      // be rejected outright (409), never silently overwritten. Both sides
-      // returning 200 is only valid if cancel is the one that ran second
-      // (cancelling an already-CONFIRMED Booking is legitimate) — the
-      // invariant that must hold in every ordering is: a CANCELLED Booking
-      // is never resurrected to CONFIRMED.
+      // remove()'s guard is only on deletedAt (not status), so unlike two
+      // writers racing on the same field, remove() always succeeds here —
+      // approve() only succeeds if it commits before remove() sets
+      // deletedAt, since decide()'s guard requires deletedAt: null. The
+      // invariant: a Booking is never left CONFIRMED with deletedAt still
+      // null after both calls settle, and approve is never silently
+      // resurrected once removed.
+      expect(removeRes.status).toBe(204);
       const final = await prisma.booking.findUniqueOrThrow({ where: { id } });
-      if (cancelRes.status === 200) {
-        expect(final.status).toBe('CANCELLED');
-      } else {
-        expect(cancelRes.status).toBe(409);
-        expect(approveRes.status).toBe(200);
+      expect(final.deletedAt).not.toBeNull();
+      if (approveRes.status === 200) {
         expect(final.status).toBe('CONFIRMED');
+      } else {
+        expect(approveRes.status).toBe(409);
+        expect(final.status).toBe('PENDING_APPROVAL');
       }
     });
 
@@ -716,41 +711,41 @@ describe('Bookings (e2e)', () => {
       expect(notifications.notifyBookingDecision).toHaveBeenCalledTimes(1);
     });
 
-    it('notifies the requester when someone else cancels their Booking', async () => {
+    it('notifies the requester when someone else deletes their Booking', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Cancelled by admin', ...slot })
+        .send({ roomId: openRoomId, title: 'Deleted by admin', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
       await apiRequest(app)
-        .patch(`/bookings/${id}/cancel`)
+        .delete(`/bookings/${id}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(204);
 
-      expect(notifications.notifyBookingCancelled).toHaveBeenCalledTimes(1);
+      expect(notifications.notifyBookingDeleted).toHaveBeenCalledTimes(1);
     });
 
-    it('still calls the cancel-notification hook when the requester cancels their own Booking (decision logic then suppresses it)', async () => {
+    it('still calls the delete-notification hook when the requester deletes their own Booking (decision logic then suppresses it)', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Self-cancelled', ...slot })
+        .send({ roomId: openRoomId, title: 'Self-deleted', ...slot })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
       await apiRequest(app)
-        .patch(`/bookings/${id}/cancel`)
+        .delete(`/bookings/${id}`)
         .set('Authorization', `Bearer ${userToken}`)
-        .expect(200);
+        .expect(204);
 
-      expect(notifications.notifyBookingCancelled).toHaveBeenCalledTimes(1);
-      const [, , , cancelledByUserId] = notifications.notifyBookingCancelled
-        .mock.calls[0] as [unknown, unknown, unknown, string];
-      expect(cancelledByUserId).toBe(userId);
+      expect(notifications.notifyBookingDeleted).toHaveBeenCalledTimes(1);
+      const [, , , deletedByUserId] = notifications.notifyBookingDeleted.mock
+        .calls[0] as [unknown, unknown, unknown, string];
+      expect(deletedByUserId).toBe(userId);
     });
   });
 
@@ -806,23 +801,23 @@ describe('Bookings (e2e)', () => {
       );
     });
 
-    it('removes the Calendar event when a Booking is cancelled', async () => {
+    it('removes the Calendar event when an active Booking is deleted', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
           roomId: openRoomId,
-          title: 'Calendar removal on cancel',
+          title: 'Calendar removal on delete',
           ...slot,
         })
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
       await apiRequest(app)
-        .patch(`/bookings/${id}/cancel`)
+        .delete(`/bookings/${id}`)
         .set('Authorization', `Bearer ${userToken}`)
-        .expect(200);
+        .expect(204);
 
       expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
     });

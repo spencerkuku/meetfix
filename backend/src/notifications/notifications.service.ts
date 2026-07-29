@@ -61,17 +61,17 @@ export class NotificationsService {
     );
   }
 
-  async notifyBookingCancelled(
+  async notifyBookingDeleted(
     booking: Booking,
     room: Room,
     requester: User,
-    cancelledByUserId: string,
+    deletedByUserId: string,
   ): Promise<void> {
-    if (cancelledByUserId === booking.userId) return;
+    if (deletedByUserId === booking.userId) return;
     await this.send(
       requester.email,
-      `您的預約「${booking.title}」已被取消`,
-      `您在 ${room.name} 的預約「${booking.title}」已被取消。`,
+      `您的預約「${booking.title}」已被刪除`,
+      `您在 ${room.name} 的預約「${booking.title}」已被刪除。`,
     );
   }
 

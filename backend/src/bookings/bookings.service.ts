@@ -43,7 +43,7 @@ export class BookingsService {
   ) {}
 
   // A Booking's Google Calendar sync (issue #11) needs the requester's
-  // Account (provider + refresh token), which findAll/create/decide/cancel
+  // Account (provider + refresh token), which findAll/create/decide/remove
   // otherwise never fetch — kept to one place rather than repeating the
   // same findUnique across every write path.
   private findAccountFor(userId: string) {
@@ -197,59 +197,15 @@ export class BookingsService {
     }
   }
 
-  async cancel(
-    id: string,
-    userId: string,
-    role: Role,
-  ): Promise<BookingWithUserName> {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
-    if (!booking || booking.deletedAt) {
-      throw new NotFoundException('Booking not found');
-    }
-    assertOwnerOrAdmin(
-      booking,
-      userId,
-      role,
-      'You can only cancel your own Bookings',
-    );
-    if (!isActiveBooking(booking.status)) {
-      throw new BadRequestException('This Booking is already inactive');
-    }
-    if (booking.endTime < new Date()) {
-      throw new BadRequestException('Cannot cancel a past Booking');
-    }
-    // Conditional on status, not just id, so a concurrent decide() that
-    // already moved this Booking out of an active status can't be silently
-    // overwritten back to CANCELLED, and vice versa — see the CANCELLED-
-    // resurrection race this closes.
-    const result = await this.prisma.booking.updateMany({
-      where: { id, status: { in: ACTIVE_BOOKING_STATUSES }, deletedAt: null },
-      data: { status: BookingStatus.CANCELLED },
-    });
-    if (result.count === 0) {
-      throw new ConflictException('This Booking is no longer active');
-    }
-    const updated = await this.prisma.booking.findUniqueOrThrow({
+  // Soft-deletes a future Booking regardless of its current status. See
+  // CONTEXT.md / issue #19: this makes a Booking the owner no longer wants
+  // disappear from all reads, without touching BookingStatus semantics.
+  // The sole self-service removal action — cancel() was merged into this.
+  async remove(id: string, userId: string, role: Role): Promise<void> {
+    const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: { user: true, room: true },
     });
-    await this.notifications.notifyBookingCancelled(
-      updated,
-      updated.room,
-      updated.user,
-      userId,
-    );
-    await this.removeCalendarEvent(updated);
-    const { room: _room, ...bookingWithUser } = updated;
-    return withUserName(bookingWithUser);
-  }
-
-  // Soft-deletes a future Booking regardless of its current status — a
-  // separate action from cancel(), which only changes `status`. See
-  // CONTEXT.md / issue #19: this makes a Booking the owner no longer wants
-  // disappear from all reads, without touching BookingStatus semantics.
-  async remove(id: string, userId: string, role: Role): Promise<void> {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
@@ -273,6 +229,12 @@ export class BookingsService {
     }
     if (isActiveBooking(booking.status)) {
       await this.removeCalendarEvent(booking);
+      await this.notifications.notifyBookingDeleted(
+        booking,
+        booking.room,
+        booking.user,
+        userId,
+      );
     }
   }
 
@@ -297,12 +259,12 @@ export class BookingsService {
     }
     const updated = await this.audit.runAuditedTransaction(
       async (tx) => {
-        // Conditional on status, not just id, so two racing decide() calls
-        // (or a decide() racing a concurrent cancel()) can't both proceed —
-        // only the first to commit wins, closing both the CANCELLED-
-        // resurrection race and the duplicate-approval orphaned-Calendar-
-        // event race in one atomic guard, mirroring create()'s existing
-        // Serializable-transaction correctness.
+        // Conditional on status and deletedAt, not just id, so two racing
+        // decide() calls (or a decide() racing a concurrent remove()) can't
+        // both proceed — only the first to commit wins, closing both the
+        // deleted-Booking-resurrection race and the duplicate-approval
+        // orphaned-Calendar-event race in one atomic guard, mirroring
+        // create()'s existing Serializable-transaction correctness.
         const result = await tx.booking.updateMany({
           where: {
             id,

@@ -50,7 +50,7 @@ A claim on a Room for a specific time range, made by a User. Identified by Room 
 _Avoid_: Reservation, Appointment
 
 **Booking Status**:
-One of `CONFIRMED`, `PENDING_APPROVAL`, `REJECTED`, `CANCELLED`. A Booking in `CONFIRMED` or `PENDING_APPROVAL` status holds its time slot exclusively — no other Booking may overlap it in either status. Only `REJECTED` and `CANCELLED` release the slot.
+One of `CONFIRMED`, `PENDING_APPROVAL`, `REJECTED`, `CANCELLED`. A Booking in `CONFIRMED` or `PENDING_APPROVAL` status holds its time slot exclusively — no other Booking may overlap it in either status. `CANCELLED` is a historical status only — no current action produces it; a Booking releases its slot either by being `REJECTED` at Booking Approval or by Booking Deletion.
 
 **Booking Approval**:
 A ROOM_MANAGER's act of setting a `PENDING_APPROVAL` Booking to `CONFIRMED` or `REJECTED`. Distinct from Account Approval.
@@ -59,7 +59,7 @@ A ROOM_MANAGER's act of setting a `PENDING_APPROVAL` Booking to `CONFIRMED` or `
 The condition where a new Booking's time range overlaps an existing Booking in `CONFIRMED` or `PENDING_APPROVAL` status on the same Room. Always rejected at creation time — never surfaced as a warning to resolve later.
 
 **Booking Deletion**:
-The owner (or an ADMIN) removing a future Booking from all views regardless of its current `Booking Status`. Distinct from cancelling: cancelling only moves an active Booking to `CANCELLED`, while deletion makes any future Booking — active or already `CANCELLED`/`REJECTED` — disappear entirely. Implemented as a soft delete (a `deletedAt` timestamp); a past or in-progress Booking cannot be deleted.
+The owner (or an ADMIN) removing a future Booking from all views regardless of its current `Booking Status`. The only self-service way to give up a Booking — there is no separate "cancel" action. Implemented as a soft delete (a `deletedAt` timestamp); a past or in-progress Booking cannot be deleted.
 
 ### Repairs
 

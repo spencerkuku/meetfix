@@ -34,11 +34,6 @@ export class BookingsController {
     return this.bookingsService.create(user.id, body);
   }
 
-  @Patch(':id/cancel')
-  cancel(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.bookingsService.cancel(id, user.id, user.role);
-  }
-
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser() user: User, @Param('id') id: string) {
