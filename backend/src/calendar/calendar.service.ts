@@ -4,6 +4,7 @@ import { Account, Booking, BookingStatus, Room } from '@prisma/client';
 import { google } from 'googleapis';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenEncryptionService } from '../auth/token-encryption.service';
+import { isActiveBooking } from '../bookings/booking-status';
 
 // Google Calendar sync for CONFIRMED Bookings, using the refresh token
 // captured at Google login time (see AuthService/TokenEncryptionService).
@@ -60,10 +61,7 @@ export class CalendarService {
   }
 
   async removeBookingEvent(booking: Booking, account: Account): Promise<void> {
-    const isReleasedStatus =
-      booking.status === BookingStatus.REJECTED ||
-      booking.status === BookingStatus.CANCELLED;
-    if (!isReleasedStatus || booking.googleEventId === null) {
+    if (isActiveBooking(booking.status) || booking.googleEventId === null) {
       return;
     }
     if (!account.googleRefreshToken) {

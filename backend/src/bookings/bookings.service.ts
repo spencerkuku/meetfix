@@ -19,11 +19,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
 import { withUserName } from '../common/with-user-name';
-
-const ACTIVE_STATUSES: BookingStatus[] = [
-  BookingStatus.CONFIRMED,
-  BookingStatus.PENDING_APPROVAL,
-];
+import { ACTIVE_BOOKING_STATUSES, isActiveBooking } from './booking-status';
 
 // A Booking's startTime may not be more than this far in the past — small
 // enough to tolerate ordinary clock skew between client and server, not to
@@ -136,7 +132,7 @@ export class BookingsService {
           const conflict = await tx.booking.findFirst({
             where: {
               roomId: dto.roomId,
-              status: { in: ACTIVE_STATUSES },
+              status: { in: ACTIVE_BOOKING_STATUSES },
               deletedAt: null,
               startTime: { lt: endTime },
               endTime: { gt: startTime },
@@ -213,10 +209,7 @@ export class BookingsService {
     if (booking.userId !== userId && role !== Role.ADMIN) {
       throw new ForbiddenException('You can only cancel your own Bookings');
     }
-    if (
-      booking.status === BookingStatus.CANCELLED ||
-      booking.status === BookingStatus.REJECTED
-    ) {
+    if (!isActiveBooking(booking.status)) {
       throw new BadRequestException('This Booking is already inactive');
     }
     if (booking.endTime < new Date()) {
@@ -227,7 +220,7 @@ export class BookingsService {
     // overwritten back to CANCELLED, and vice versa — see the CANCELLED-
     // resurrection race this closes.
     const result = await this.prisma.booking.updateMany({
-      where: { id, status: { in: ACTIVE_STATUSES }, deletedAt: null },
+      where: { id, status: { in: ACTIVE_BOOKING_STATUSES }, deletedAt: null },
       data: { status: BookingStatus.CANCELLED },
     });
     if (result.count === 0) {
@@ -272,7 +265,7 @@ export class BookingsService {
     if (result.count === 0) {
       throw new ConflictException('This Booking was already deleted');
     }
-    if (ACTIVE_STATUSES.includes(booking.status)) {
+    if (isActiveBooking(booking.status)) {
       await this.removeCalendarEvent(booking);
     }
   }
