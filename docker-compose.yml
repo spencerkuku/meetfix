@@ -38,7 +38,9 @@ services:
       retries: 10
 
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     networks:
       - frontend
@@ -68,7 +70,7 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME}
     volumes:
-      - uploads:/app/uploads
+      - uploads:/app/backend/uploads
     depends_on:
       postgres:
         condition: service_healthy

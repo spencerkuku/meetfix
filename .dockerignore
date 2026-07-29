@@ -1,6 +1,9 @@
 node_modules
 dist
-backend
+coverage
+backend/uploads/**
+!backend/uploads/**/
+!backend/uploads/**/.gitkeep
 .git
 .env
 .env.example

@@ -17,8 +17,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import { withUserName } from '../common/with-user-name';
-import { maskName } from '../common/mask-name';
-import { canSeeReporterDetails } from './repair-visibility';
+import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 // Repair Status only ever advances forward — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`

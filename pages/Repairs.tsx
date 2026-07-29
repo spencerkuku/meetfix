@@ -5,6 +5,7 @@ import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin } from 'lucide-react';
+import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 export const Repairs: React.FC = () => {
   const { repairs, addRepair, currentUser, repairCategories } = useData();
@@ -98,23 +99,9 @@ export const Repairs: React.FC = () => {
   };
 
 
-  // --- Privacy Helpers ---
-  
-  // Mask name: 陳小美 -> 陳O美, 王大明 -> 王O明, Jo -> Jo
-  const maskName = (name: string) => {
-    if (!name || name.length < 2) return name;
-    if (name.length === 2) return name[0] + 'O';
-    return name[0] + 'O' + name.slice(2);
-  };
-
   const canSeeSensitiveInfo = (ticket: RepairTicket) => {
     if (!currentUser) return false;
-    // Admin, Maintenance, or the Ticket Owner can see full info
-    return (
-        currentUser.role === UserRole.ADMIN || 
-        currentUser.role === UserRole.MAINTENANCE || 
-        currentUser.id === ticket.userId
-    );
+    return canSeeReporterDetails(currentUser.role, currentUser.id, ticket.userId);
   };
 
   const canReport = currentUser && currentUser.role !== UserRole.GUEST;
