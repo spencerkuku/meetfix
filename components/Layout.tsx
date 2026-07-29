@@ -308,114 +308,118 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Profile Modal */}
       {showProfileModal && currentUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in">
-            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden animate-fade-in flex flex-col">
+            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-lg text-slate-800">編輯個人資料</h3>
               <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
-            <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
-              <div className="flex justify-center mb-6">
-                <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={48} className="w-24 h-24 rounded-full bg-slate-100 ring-4 ring-slate-50 text-slate-400" />
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-700">Google 帳號連結</p>
-                  <p className="text-xs text-slate-500 truncate">
-                    {currentUser.googleLinked ? '已連結，Booking 會自動同步到 Google 日曆' : '連結後可自動同步 Booking 到 Google 日曆'}
-                  </p>
+            <form onSubmit={handleSaveProfile} className="flex flex-col min-h-0 flex-1">
+              <div className="p-6 space-y-4 overflow-y-auto min-h-0">
+                <div className="flex justify-center mb-6">
+                  <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={48} className="w-24 h-24 rounded-full bg-slate-100 ring-4 ring-slate-50 text-slate-400" />
                 </div>
-                {currentUser.googleLinked ? (
-                  <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium shrink-0">
-                    <CheckCircle2 size={16} /> 已連結
-                  </span>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 bg-white"
-                    disabled={linkingGoogle}
-                    onClick={handleLinkGoogle}
-                  >
-                    {linkingGoogle ? '連結中…' : '連結 Google'}
-                  </Button>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-700">Google 帳號連結</p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {currentUser.googleLinked ? '已連結，Booking 會自動同步到 Google 日曆' : '連結後可自動同步 Booking 到 Google 日曆'}
+                    </p>
+                  </div>
+                  {currentUser.googleLinked ? (
+                    <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium shrink-0">
+                      <CheckCircle2 size={16} /> 已連結
+                    </span>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0 bg-white"
+                      disabled={linkingGoogle}
+                      onClick={handleLinkGoogle}
+                    >
+                      {linkingGoogle ? '連結中…' : '連結 Google'}
+                    </Button>
+                  )}
+                </div>
+
+                {currentUser.hasPassword === true && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                    <p className="text-sm font-medium text-slate-700">修改密碼</p>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">目前密碼</label>
+                      <input
+                        type="password"
+                        value={currentPassword}
+                        onChange={e => setCurrentPassword(e.target.value)}
+                        className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">新密碼</label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">確認新密碼</label>
+                      <input
+                        type="password"
+                        value={confirmNewPassword}
+                        onChange={e => setConfirmNewPassword(e.target.value)}
+                        className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full bg-white"
+                      disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+                      onClick={handleChangePassword}
+                    >
+                      {changingPassword ? '更新中…' : '更新密碼'}
+                    </Button>
+                  </div>
                 )}
-              </div>
 
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <p className="text-sm font-medium text-slate-700">修改密碼</p>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">目前密碼</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">姓名</label>
                   <input
-                    type="password"
-                    value={currentPassword}
-                    onChange={e => setCurrentPassword(e.target.value)}
-                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    required
+                    type="text"
+                    value={profileName}
+                    onChange={e => setProfileName(e.target.value)}
+                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">新密碼</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">班級 / 部門</label>
                   <input
-                    type="password"
-                    value={newPassword}
-                    onChange={e => setNewPassword(e.target.value)}
-                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    type="text"
+                    value={profileClass}
+                    onChange={e => setProfileClass(e.target.value)}
+                    placeholder="例如：資訊三甲"
+                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">確認新密碼</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">聯絡電話</label>
                   <input
-                    type="password"
-                    value={confirmNewPassword}
-                    onChange={e => setConfirmNewPassword(e.target.value)}
-                    className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    type="tel"
+                    value={profilePhone}
+                    onChange={e => setProfilePhone(e.target.value)}
+                    placeholder="09xx-xxx-xxx"
+                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full bg-white"
-                  disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
-                  onClick={handleChangePassword}
-                >
-                  {changingPassword ? '更新中…' : '更新密碼'}
-                </Button>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">姓名</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={profileName} 
-                  onChange={e => setProfileName(e.target.value)} 
-                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">班級 / 部門</label>
-                <input 
-                  type="text" 
-                  value={profileClass} 
-                  onChange={e => setProfileClass(e.target.value)} 
-                  placeholder="例如：資訊三甲"
-                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">聯絡電話</label>
-                <input 
-                  type="tel" 
-                  value={profilePhone} 
-                  onChange={e => setProfilePhone(e.target.value)} 
-                  placeholder="09xx-xxx-xxx"
-                  className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
-                />
-              </div>
-
-              <div className="pt-4 flex justify-end gap-3 border-t mt-2">
+              <div className="px-6 py-4 flex justify-end gap-3 border-t shrink-0">
                 <Button type="button" variant="ghost" onClick={() => setShowProfileModal(false)}>取消</Button>
                 <Button type="submit">儲存變更</Button>
               </div>
