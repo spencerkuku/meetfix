@@ -119,7 +119,9 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: User) {
-    const googleLinked = await this.authService.isGoogleLinked(user.id);
+    const { googleLinked, hasPassword } = await this.authService.getAccountFlags(
+      user.id,
+    );
     return {
       id: user.id,
       email: user.email,
@@ -127,6 +129,7 @@ export class AuthController {
       role: user.role,
       avatarUrl: user.avatarUrl,
       googleLinked,
+      hasPassword,
     };
   }
 }

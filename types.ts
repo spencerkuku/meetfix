@@ -16,6 +16,7 @@ export interface User {
   class?: string;
   phone?: string;
   googleLinked?: boolean;
+  hasPassword?: boolean;
 }
 
 export interface Room {

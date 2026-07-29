@@ -401,11 +401,16 @@ export class AuthService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
-  async isGoogleLinked(userId: string): Promise<boolean> {
+  async getAccountFlags(
+    userId: string,
+  ): Promise<{ googleLinked: boolean; hasPassword: boolean }> {
     const account = await this.prisma.account.findUnique({
       where: { userId },
     });
-    return account?.googleSub != null;
+    return {
+      googleLinked: account?.googleSub != null,
+      hasPassword: account?.passwordHash != null,
+    };
   }
 
   private async signToken(user: User): Promise<string> {
