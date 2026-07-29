@@ -65,7 +65,16 @@ export const Bookings: React.FC = () => {
   const [hoveredBooking, setHoveredBooking] = useState<Booking | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
-  // Filtered Bookings for Calendar (Exclude Rejected)
+  // All Bookings that still hold their Slot (CONFIRMED or PENDING_APPROVAL),
+  // regardless of the calendar's room filter — this is the authority for any
+  // Slot Conflict check, as opposed to displayedBookings below which is only
+  // for what the calendar grid renders.
+  const activeBookings = useMemo(
+    () => bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'PENDING_APPROVAL'),
+    [bookings]
+  );
+
+  // Filtered Bookings for Calendar rendering (Exclude Rejected)
   const displayedBookings = useMemo(() => {
     const active = bookings.filter(b => b.status !== 'REJECTED');
     if (filterRoomId === 'ALL') return active;
@@ -177,7 +186,7 @@ export const Bookings: React.FC = () => {
     // Invalid time range
     if (formStart >= formEnd) return false;
 
-    return !displayedBookings.some(b => {
+    return !activeBookings.some(b => {
       // Skip self if editing
       if (editingBookingId && b.id === editingBookingId) return false;
       if (b.roomId !== roomId) return false;
