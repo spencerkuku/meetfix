@@ -14,6 +14,7 @@ interface BookingResponse {
   id: string;
   roomId: string;
   userId: string;
+  title: string;
   status: 'CONFIRMED' | 'PENDING_APPROVAL' | 'REJECTED' | 'CANCELLED';
   startTime: string;
   endTime: string;
@@ -39,11 +40,13 @@ describe('Bookings (e2e)', () => {
     notifyBookingSubmittedForApproval: jest.fn(),
     notifyBookingDecision: jest.fn(),
     notifyBookingDeleted: jest.fn(),
+    notifyBookingEdited: jest.fn(),
   };
   // Same rationale as `notifications` above.
   const calendar = {
     syncBookingConfirmed: jest.fn().mockResolvedValue(null),
     removeBookingEvent: jest.fn().mockResolvedValue(undefined),
+    updateBookingEvent: jest.fn().mockResolvedValue(undefined),
   };
 
   async function tokenFor(
@@ -438,6 +441,339 @@ describe('Bookings (e2e)', () => {
       return apiRequest(app)
         .delete('/bookings/not-a-real-booking')
         .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
+    });
+  });
+
+  describe('Booking editing (#25)', () => {
+    it('the owner can edit title/description without touching status or the slot', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Original title', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+      // Creating on an approval-required Room already fired this once —
+      // clear it so the assertion below reflects only the edit's behavior.
+      jest.clearAllMocks();
+
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Updated title', description: 'More detail' })
+        .expect(200);
+
+      const body = res.body as BookingResponse;
+      expect(body.title).toBe('Updated title');
+      expect(body.status).toBe('PENDING_APPROVAL');
+      expect(notifications.notifyBookingSubmittedForApproval).not.toHaveBeenCalled();
+    });
+
+    it('editing a CONFIRMED Booking to a Room requiring approval reverts it to PENDING_APPROVAL and notifies Room Manager', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Edit to approval room', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).status).toBe('CONFIRMED');
+
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId })
+        .expect(200);
+
+      expect((res.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+      expect(
+        notifications.notifyBookingSubmittedForApproval,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('editing a PENDING_APPROVAL Booking to a Room that does not require approval confirms it immediately', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Edit to open room', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId })
+        .expect(200);
+
+      expect((res.body as BookingResponse).status).toBe('CONFIRMED');
+    });
+
+    it('editing a Booking to a slightly different time on the same Room does not conflict with itself', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Self edit', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      // Shift only the start forward, keeping the original endTime — stays
+      // fully inside nextSlot()'s 1-hour window (no spillover into the next
+      // test's slot), while still genuinely changing the time range.
+      const newStart = new Date(
+        new Date(slot.startTime).getTime() + 15 * 60 * 1000,
+      ).toISOString();
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ startTime: newStart })
+        .expect(200);
+    });
+
+    it('rejects editing a Booking to a time that conflicts with another Booking on the same Room', async () => {
+      const slotA = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'To move', ...slotA })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      const slotB = nextSlot();
+      await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .send({ roomId: openRoomId, title: 'Occupies slot B', ...slotB })
+        .expect(201);
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ startTime: slotB.startTime, endTime: slotB.endTime })
+        .expect(409);
+    });
+
+    it('rejects editing a Booking that is currently in progress', async () => {
+      const inProgress = await prisma.booking.create({
+        data: {
+          roomId: openRoomId,
+          userId,
+          title: 'Happening right now',
+          startTime: new Date(Date.now() - 30 * 60 * 1000),
+          endTime: new Date(Date.now() + 30 * 60 * 1000),
+          status: 'CONFIRMED',
+        },
+      });
+
+      await apiRequest(app)
+        .patch(`/bookings/${inProgress.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Nope' })
+        .expect(400);
+    });
+
+    it('rejects editing a past Booking', async () => {
+      const past = await prisma.booking.create({
+        data: {
+          roomId: openRoomId,
+          userId,
+          title: 'Already happened',
+          startTime: new Date('2020-01-01T00:00:00.000Z'),
+          endTime: new Date('2020-01-01T01:00:00.000Z'),
+          status: 'CONFIRMED',
+        },
+      });
+
+      await apiRequest(app)
+        .patch(`/bookings/${past.id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Nope' })
+        .expect(400);
+    });
+
+    it('rejects editing a REJECTED Booking', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'To reject then edit', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      await apiRequest(app)
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .expect(200);
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Nope' })
+        .expect(400);
+    });
+
+    it('rejects editing a CANCELLED Booking (historical status)', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Historical cancel', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      await prisma.booking.update({
+        where: { id },
+        data: { status: 'CANCELLED' },
+      });
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Nope' })
+        .expect(400);
+    });
+
+    it('rejects editing a Booking that belongs to someone else', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Not yours to edit', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .send({ title: 'Hijacked' })
+        .expect(403);
+    });
+
+    it('an ADMIN can edit a future Booking that belongs to someone else, notifying the owner', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Admin edits this', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Fixed by admin' })
+        .expect(200);
+
+      expect(notifications.notifyBookingEdited).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify when the owner edits their own Booking', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Self edit no notify', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Still mine' })
+        .expect(200);
+
+      expect(notifications.notifyBookingEdited).not.toHaveBeenCalled();
+    });
+
+    it('updates the existing Calendar event in place when a CONFIRMED Booking is edited and stays CONFIRMED', async () => {
+      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-edit-update');
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Calendar update on edit', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).googleEventId).toBe(
+        'evt-edit-update',
+      );
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Renamed meeting' })
+        .expect(200);
+
+      expect(calendar.updateBookingEvent).toHaveBeenCalledTimes(1);
+      // Only the original create() should have inserted a new event.
+      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes the Calendar event when editing reverts a CONFIRMED Booking to PENDING_APPROVAL', async () => {
+      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-edit-remove');
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Calendar removal on edit', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId })
+        .expect(200);
+
+      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('an edit that reschedules racing a concurrent reject never resurrects a REJECTED Booking', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          roomId: approvalRoomId,
+          title: 'Edit-reschedule vs reject race',
+          ...slot,
+        })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+
+      const [editRes, rejectRes] = await Promise.all([
+        apiRequest(app)
+          .patch(`/bookings/${id}`)
+          .set('Authorization', `Bearer ${userToken}`)
+          .send({ roomId: openRoomId }),
+        apiRequest(app)
+          .patch(`/bookings/${id}/reject`)
+          .set('Authorization', `Bearer ${roomManagerToken}`),
+      ]);
+
+      // Both writes are guarded on the PENDING_APPROVAL status read before
+      // either committed — only the first to commit can win.
+      const statuses = [editRes.status, rejectRes.status].sort();
+      expect(statuses).toEqual([200, 409]);
+      const final = await prisma.booking.findUniqueOrThrow({ where: { id } });
+      if (editRes.status === 200) {
+        expect(final.status).toBe('CONFIRMED');
+        expect(final.roomId).toBe(openRoomId);
+      } else {
+        expect(rejectRes.status).toBe(200);
+        expect(final.status).toBe('REJECTED');
+      }
+    });
+
+    it('404s editing a Booking that does not exist', () => {
+      return apiRequest(app)
+        .patch('/bookings/not-a-real-booking')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ title: 'Ghost' })
         .expect(404);
     });
   });

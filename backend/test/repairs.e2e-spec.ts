@@ -48,7 +48,11 @@ describe('Repairs (e2e)', () => {
   const createdUploadPaths: string[] = [];
   // See bookings.e2e-spec.ts for why NotificationsService is mocked at the
   // SMTP-send boundary rather than not exercised at all.
-  const notifications = { notifyRepairUpdate: jest.fn() };
+  const notifications = {
+    notifyRepairUpdate: jest.fn(),
+    notifyRepairEdited: jest.fn(),
+    notifyRepairDeleted: jest.fn(),
+  };
 
   async function tokenFor(email: string, role: Role): Promise<string> {
     const { user } = await authService.loginWithGoogle({
@@ -387,6 +391,228 @@ describe('Repairs (e2e)', () => {
         .expect(200);
 
       expect(notifications.notifyRepairUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Repair Ticket editing + deletion (#25)', () => {
+    async function createTicket(token: string = userToken): Promise<string> {
+      const res = await apiRequest(app)
+        .post('/repairs')
+        .set('Authorization', `Bearer ${token}`)
+        .field('location', 'D404 教室')
+        .field('category', '硬體設備')
+        .field('description', '插座故障')
+        .expect(201);
+      return (res.body as RepairTicketResponse).id;
+    }
+
+    it('the reporter can edit location/category/description on a PENDING ticket', async () => {
+      const id = await createTicket();
+      const res = await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('location', '更新後的地點')
+        .field('category', '桌椅家具')
+        .field('description', '更新後的描述')
+        .expect(200);
+
+      const body = res.body as RepairTicketResponse;
+      expect(body.location).toBe('更新後的地點');
+      expect(body.category).toBe('桌椅家具');
+      expect(body.description).toBe('更新後的描述');
+      expect(body.status).toBe('PENDING');
+    });
+
+    it('the reporter can replace an existing photo with a new one', async () => {
+      const created = await apiRequest(app)
+        .post('/repairs')
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('location', '有照片的地點')
+        .field('category', '硬體設備')
+        .field('description', '原始照片')
+        .attach('photo', PNG_BYTES, 'original.png')
+        .expect(201);
+      const id = (created.body as RepairTicketResponse).id;
+      createdUploadPaths.push(
+        uploadFilePath((created.body as RepairTicketResponse).imageUrl as string),
+      );
+
+      const res = await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .attach('photo', PNG_BYTES, 'replacement.png')
+        .expect(200);
+      const body = res.body as RepairTicketResponse;
+      expect(body.imageUrl).toMatch(/^\/api\/uploads\/repairs\/.+\.png$/);
+      createdUploadPaths.push(uploadFilePath(body.imageUrl as string));
+    });
+
+    it('the reporter can remove an existing photo entirely', async () => {
+      const created = await apiRequest(app)
+        .post('/repairs')
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('location', '要移除照片的地點')
+        .field('category', '硬體設備')
+        .field('description', '待移除照片')
+        .attach('photo', PNG_BYTES, 'to-remove.png')
+        .expect(201);
+      const id = (created.body as RepairTicketResponse).id;
+      createdUploadPaths.push(
+        uploadFilePath((created.body as RepairTicketResponse).imageUrl as string),
+      );
+
+      const res = await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('removePhoto', 'true')
+        .expect(200);
+      expect((res.body as RepairTicketResponse).imageUrl).toBeNull();
+    });
+
+    it('rejects editing with an unknown Repair Category', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('category', 'Not A Real Category')
+        .expect(400);
+    });
+
+    it('rejects editing a ticket that is IN_PROGRESS', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('description', 'Too late')
+        .expect(409);
+    });
+
+    it('rejects editing a ticket that belongs to someone else', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .field('description', 'Hijacked')
+        .expect(403);
+    });
+
+    it('an ADMIN can edit a PENDING ticket that belongs to someone else, notifying the reporter', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('description', 'Fixed by admin')
+        .expect(200);
+
+      expect(notifications.notifyRepairEdited).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify when the reporter edits their own ticket', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}/content`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('description', 'Still mine')
+        .expect(200);
+
+      expect(notifications.notifyRepairEdited).not.toHaveBeenCalled();
+    });
+
+    it('404s editing a Repair Ticket that does not exist', () => {
+      return apiRequest(app)
+        .patch('/repairs/not-a-real-ticket/content')
+        .set('Authorization', `Bearer ${userToken}`)
+        .field('description', 'Ghost')
+        .expect(404);
+    });
+
+    it('the reporter can delete a PENDING ticket, and it disappears from the listing', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      const listing = await apiRequest(app)
+        .get('/repairs')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      const ids = (listing.body as RepairTicketResponse[]).map((t) => t.id);
+      expect(ids).not.toContain(id);
+    });
+
+    it('rejects deleting a ticket that is IN_PROGRESS', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(409);
+    });
+
+    it('rejects deleting a COMPLETED ticket', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(409);
+    });
+
+    it('rejects deleting a ticket that belongs to someone else', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .expect(403);
+    });
+
+    it('an ADMIN can delete a PENDING ticket that belongs to someone else, notifying the reporter', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(204);
+
+      expect(notifications.notifyRepairDeleted).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify when the reporter deletes their own ticket', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      expect(notifications.notifyRepairDeleted).not.toHaveBeenCalled();
+    });
+
+    it('404s deleting a Repair Ticket that does not exist', () => {
+      return apiRequest(app)
+        .delete('/repairs/not-a-real-ticket')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
     });
   });
 

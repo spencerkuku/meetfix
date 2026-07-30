@@ -72,6 +72,49 @@ export async function updateRepairTicket(
   return toRepairTicket(await res.json());
 }
 
+export interface UpdateRepairContentInput {
+  location?: string;
+  category?: string;
+  description?: string;
+  removePhoto?: boolean;
+}
+
+// Reporter-side content edit — deliberately a distinct endpoint from
+// updateRepairTicket (MAINTENANCE/ADMIN-only status/reply), since the
+// permission model and payload shape are both different. Multipart, like
+// createRepairTicket, since a new photo may be attached.
+export async function updateRepairContent(
+  id: string,
+  input: UpdateRepairContentInput,
+  photo?: File,
+): Promise<RepairTicket> {
+  const formData = new FormData();
+  if (input.location !== undefined) formData.append('location', input.location);
+  if (input.category !== undefined) formData.append('category', input.category);
+  if (input.description !== undefined) formData.append('description', input.description);
+  if (input.removePhoto) formData.append('removePhoto', 'true');
+  if (photo) formData.append('photo', photo);
+
+  const res = await fetch(`${API_BASE_URL}/repairs/${id}/content`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: formData,
+  });
+  if (res.status === 409) {
+    throw new Error('This Repair Ticket is no longer PENDING');
+  }
+  if (!res.ok) throw new Error('Failed to update repair ticket');
+  return toRepairTicket(await res.json());
+}
+
+export async function deleteRepairTicket(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/repairs/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to delete repair ticket');
+}
+
 export async function fetchRepairCategories(): Promise<RepairCategory[]> {
   const res = await fetch(`${API_BASE_URL}/repair-categories`, {
     headers: authHeaders(),

@@ -4,15 +4,20 @@ import { useData } from '../App';
 import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
-import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin } from 'lucide-react';
+import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin, Pencil, Trash2 } from 'lucide-react';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 export const Repairs: React.FC = () => {
-  const { repairs, addRepair, currentUser, repairCategories } = useData();
+  const { repairs, addRepair, editRepairContent, deleteRepair, currentUser, repairCategories } = useData();
   const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+
+  // The Repair Ticket being edited, or null when submitting a new one — same
+  // "one modal, one editing-id switches its mode" pattern as Bookings.tsx.
+  const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
+  const [editingTicket, setEditingTicket] = useState<RepairTicket | null>(null);
 
   // Form State
   const [locationText, setLocationText] = useState('');
@@ -24,10 +29,20 @@ export const Repairs: React.FC = () => {
   const [userPhone, setUserPhone] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
 
-  // Initialize Form Defaults
+  // Initialize Form Defaults — pre-fills from editingTicket when editing,
+  // otherwise resets to blank for a new submission.
   useEffect(() => {
-    if (showModal && currentUser) {
+    if (!showModal || !currentUser) return;
+    setRemovePhoto(false);
+    if (editingTicket) {
+      setLocationText(editingTicket.location);
+      setCategory(editingTicket.category);
+      setDescription(editingTicket.description);
+      setPhotoFile(null);
+      setImagePreview(editingTicket.imageUrl || null);
+    } else {
       setLocationText('');
       setCategory(repairCategories[0]?.name || '');
       setUserClass(currentUser.class || '');
@@ -36,7 +51,45 @@ export const Repairs: React.FC = () => {
       setPhotoFile(null);
       setImagePreview(null);
     }
-  }, [showModal, currentUser, repairCategories]);
+  }, [showModal, currentUser, repairCategories, editingTicket]);
+
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingTicketId(null);
+    setEditingTicket(null);
+  };
+
+  const openCreateModal = () => {
+    setEditingTicketId(null);
+    setEditingTicket(null);
+    setShowModal(true);
+  };
+
+  // Only a PENDING ticket can be edited/deleted, by its reporter or an ADMIN
+  // — mirrors Booking's "future and still active" editability rule, with
+  // RepairStatus as the analog for "hasn't started yet" (see CONTEXT.md).
+  const canEditTicket = (ticket: RepairTicket): boolean => {
+    if (!currentUser) return false;
+    const isOwnerOrAdmin = ticket.userId === currentUser.id || currentUser.role === UserRole.ADMIN;
+    return isOwnerOrAdmin && ticket.status === RepairStatus.PENDING;
+  };
+
+  const openEditModal = (ticket: RepairTicket) => {
+    if (!canEditTicket(ticket)) return;
+    setEditingTicketId(ticket.id);
+    setEditingTicket(ticket);
+    setShowModal(true);
+  };
+
+  const handleDeleteTicket = async (id: string) => {
+    if (!window.confirm("確定要刪除此報修單？此動作無法復原。")) return;
+    try {
+      await deleteRepair(id);
+      success("報修單已刪除");
+    } catch {
+      error("刪除失敗,請稍後再試");
+    }
+  };
 
   const filteredRepairs = repairs.filter(r => {
     if (activeTab === 'ALL') return true;
@@ -49,6 +102,7 @@ export const Repairs: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       setPhotoFile(file);
+      setRemovePhoto(false);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -57,26 +111,41 @@ export const Repairs: React.FC = () => {
     }
   };
 
+  const handleRemovePhoto = () => {
+    setPhotoFile(null);
+    setImagePreview(null);
+    setRemovePhoto(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
     setSubmitting(true);
     try {
-      await addRepair(
-        {
-          location: locationText,
-          category,
-          description,
-          userClass: userClass || undefined,
-          userPhone: userPhone || undefined,
-        },
-        photoFile ?? undefined,
-      );
-      success("報修單已送出！");
-      setShowModal(false);
+      if (editingTicketId) {
+        await editRepairContent(
+          editingTicketId,
+          { location: locationText, category, description, removePhoto },
+          photoFile ?? undefined,
+        );
+        success("報修單已更新！");
+      } else {
+        await addRepair(
+          {
+            location: locationText,
+            category,
+            description,
+            userClass: userClass || undefined,
+            userPhone: userPhone || undefined,
+          },
+          photoFile ?? undefined,
+        );
+        success("報修單已送出！");
+      }
+      closeModal();
     } catch {
-      error("報修單送出失敗,請稍後再試");
+      error(editingTicketId ? "報修單更新失敗,請稍後再試" : "報修單送出失敗,請稍後再試");
     } finally {
       setSubmitting(false);
     }
@@ -114,7 +183,7 @@ export const Repairs: React.FC = () => {
            <p className="text-slate-500">查看報修進度或通報新問題</p>
         </div>
         {canReport && (
-          <Button onClick={() => setShowModal(true)}>
+          <Button onClick={openCreateModal}>
             <Plus size={18} /> 我要報修
           </Button>
         )}
@@ -155,8 +224,18 @@ export const Repairs: React.FC = () => {
                       <Tag size={10} /> {ticket.category}
                     </span>
                     <span className="text-xs text-slate-500">{new Date(ticket.createdAt).toLocaleDateString()}</span>
+                    {canEditTicket(ticket) && (
+                      <div className="flex items-center gap-1 ml-auto">
+                        <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 rounded" title="編輯報修單">
+                          <Pencil size={14}/>
+                        </button>
+                        <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded" title="刪除報修單">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  
+
                   <div>
                     <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
                       <MapPin size={16} className="text-slate-400"/>
@@ -202,8 +281,8 @@ export const Repairs: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-y-auto max-h-[90vh] animate-fade-in">
             <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center sticky top-0 z-10">
-              <h3 className="font-bold text-lg text-slate-800">通報設施問題</h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600"><X/></button>
+              <h3 className="font-bold text-lg text-slate-800">{editingTicketId ? '編輯報修單' : '通報設施問題'}</h3>
+              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               
@@ -254,9 +333,9 @@ export const Repairs: React.FC = () => {
                     {imagePreview ? (
                       <div className="relative inline-block">
                         <img src={imagePreview} alt="Preview" className="h-32 rounded shadow-sm" />
-                        <button 
+                        <button
                           type="button"
-                          onClick={(e) => { e.preventDefault(); setImagePreview(null); }}
+                          onClick={(e) => { e.preventDefault(); handleRemovePhoto(); }}
                           className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 z-10"
                         >
                           <X size={12} />
@@ -271,29 +350,32 @@ export const Repairs: React.FC = () => {
                  </div>
               </div>
 
-              {/* Reporter Info */}
-              <div className="bg-slate-50 p-4 rounded-lg border border-gray-200">
-                <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">報修人資料</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                   <div>
-                      <label className="block text-xs text-slate-500 mb-1">姓名</label>
-                      <p className="text-sm text-slate-700 py-1.5">{currentUser?.name}</p>
-                   </div>
-                   <div>
-                      <label className="block text-xs text-slate-500 mb-1">班級 / 部門</label>
-                      <input type="text" value={userClass} onChange={e => setUserClass(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="例: 資訊三甲"/>
-                   </div>
-                   <div>
-                      <label className="block text-xs text-slate-500 mb-1">聯絡電話</label>
-                      <input type="tel" value={userPhone} onChange={e => setUserPhone(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="09xx-xxx-xxx"/>
-                   </div>
+              {/* Reporter Info — only collected at submission time; not part
+                  of what an edit can change. */}
+              {!editingTicketId && (
+                <div className="bg-slate-50 p-4 rounded-lg border border-gray-200">
+                  <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">報修人資料</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     <div>
+                        <label className="block text-xs text-slate-500 mb-1">姓名</label>
+                        <p className="text-sm text-slate-700 py-1.5">{currentUser?.name}</p>
+                     </div>
+                     <div>
+                        <label className="block text-xs text-slate-500 mb-1">班級 / 部門</label>
+                        <input type="text" value={userClass} onChange={e => setUserClass(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="例: 資訊三甲"/>
+                     </div>
+                     <div>
+                        <label className="block text-xs text-slate-500 mb-1">聯絡電話</label>
+                        <input type="tel" value={userPhone} onChange={e => setUserPhone(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="09xx-xxx-xxx"/>
+                     </div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2 text-right">* 修改此處資料僅適用於本報修單</p>
                 </div>
-                <p className="text-xs text-slate-400 mt-2 text-right">* 修改此處資料僅適用於本報修單</p>
-              </div>
+              )}
 
               <div className="pt-4 flex justify-end gap-3 border-t">
-                <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>取消</Button>
-                <Button type="submit" disabled={submitting} isLoading={submitting}>送出通報</Button>
+                <Button type="button" variant="ghost" onClick={closeModal}>取消</Button>
+                <Button type="submit" disabled={submitting} isLoading={submitting}>{editingTicketId ? '儲存變更' : '送出通報'}</Button>
               </div>
             </form>
           </div>

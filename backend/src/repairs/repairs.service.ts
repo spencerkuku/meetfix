@@ -16,7 +16,9 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
+import { UpdateRepairTicketContentDto } from './update-repair-ticket-content.dto';
 import { withUserName } from '../common/with-user-name';
+import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 // Repair Status only ever advances forward — see CONTEXT.md. A ticket's
@@ -43,6 +45,7 @@ export class RepairsService {
     callerRole: Role,
   ): Promise<RepairTicketWithUserName[]> {
     const tickets = await this.prisma.repairTicket.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { name: true } } },
     });
@@ -93,7 +96,7 @@ export class RepairsService {
     const existingTicket = await this.prisma.repairTicket.findUnique({
       where: { id },
     });
-    if (!existingTicket) {
+    if (!existingTicket || existingTicket.deletedAt) {
       throw new NotFoundException('Repair Ticket not found');
     }
     const previousStatus = existingTicket.status;
@@ -130,6 +133,120 @@ export class RepairsService {
     );
     await this.notifications.notifyRepairUpdate(updated, updated.user, updates);
     return withUserName(updated);
+  }
+
+  // Reporter-side content edit — distinct from updateStatus() above (which
+  // stays MAINTENANCE/ADMIN-only, status+adminReply only). Only a PENDING
+  // Repair Ticket can be edited — once MAINTENANCE has picked it up
+  // (IN_PROGRESS) or finished it (COMPLETED), the reporter's content is
+  // locked, mirroring how a Booking becomes locked once it starts. See
+  // issue #25.
+  async updateContent(
+    actorId: string,
+    actorRole: Role,
+    id: string,
+    dto: UpdateRepairTicketContentDto,
+    imageUrl?: string,
+  ): Promise<RepairTicketWithUserName> {
+    const existing = await this.prisma.repairTicket.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException('Repair Ticket not found');
+    }
+    assertOwnerOrAdmin(
+      existing,
+      actorId,
+      actorRole,
+      'You can only edit your own Repair Tickets',
+    );
+
+    if (dto.category !== undefined) {
+      const category = await this.prisma.repairCategory.findUnique({
+        where: { name: dto.category },
+      });
+      if (!category) {
+        throw new BadRequestException('Unknown Repair Category');
+      }
+    }
+
+    const data: Prisma.RepairTicketUpdateInput = {
+      ...(dto.location !== undefined ? { location: dto.location } : {}),
+      ...(dto.category !== undefined ? { category: dto.category } : {}),
+      ...(dto.description !== undefined
+        ? { description: dto.description }
+        : {}),
+      // A newly-uploaded photo always wins over an explicit removal request.
+      ...(imageUrl !== undefined
+        ? { imageUrl }
+        : dto.removePhoto
+          ? { imageUrl: null }
+          : {}),
+    };
+
+    // Conditional on status, not just id, so a concurrent MAINTENANCE claim
+    // (updateStatus PENDING -> IN_PROGRESS) racing this edit can't both
+    // proceed — only the first to commit wins.
+    const result = await this.prisma.repairTicket.updateMany({
+      where: { id, status: RepairStatus.PENDING, deletedAt: null },
+      data,
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        'Only a PENDING Repair Ticket can be edited',
+      );
+    }
+    const updated = await this.prisma.repairTicket.findUniqueOrThrow({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (actorId !== updated.userId) {
+      await this.notifications.notifyRepairEdited(
+        updated,
+        updated.user,
+        actorId,
+      );
+    }
+    return withUserName(updated);
+  }
+
+  // Soft-deletes a still-PENDING Repair Ticket. A genuinely new capability —
+  // unlike Booking, Repair Ticket had no deletion path at all before
+  // issue #25. Same PENDING-only eligibility as updateContent() above.
+  async remove(actorId: string, actorRole: Role, id: string): Promise<void> {
+    const existing = await this.prisma.repairTicket.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException('Repair Ticket not found');
+    }
+    assertOwnerOrAdmin(
+      existing,
+      actorId,
+      actorRole,
+      'You can only delete your own Repair Tickets',
+    );
+
+    const result = await this.prisma.repairTicket.updateMany({
+      where: { id, status: RepairStatus.PENDING, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        'Only a PENDING Repair Ticket can be deleted',
+      );
+    }
+
+    if (actorId !== existing.userId) {
+      await this.notifications.notifyRepairDeleted(
+        existing,
+        existing.user,
+        actorId,
+      );
+    }
   }
 
   findAllCategories() {

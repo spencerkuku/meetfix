@@ -75,6 +75,46 @@ export class NotificationsService {
     );
   }
 
+  async notifyBookingEdited(
+    booking: Booking,
+    room: Room,
+    requester: User,
+    editedByUserId: string,
+  ): Promise<void> {
+    if (editedByUserId === booking.userId) return;
+    await this.send(
+      requester.email,
+      `您的預約「${booking.title}」已被修改`,
+      `您在 ${room.name} 的預約「${booking.title}」已被修改，請登入系統查看詳情。`,
+    );
+  }
+
+  async notifyRepairEdited(
+    ticket: RepairTicket,
+    reporter: User,
+    editedByUserId: string,
+  ): Promise<void> {
+    if (editedByUserId === ticket.userId) return;
+    await this.send(
+      reporter.email,
+      `您的報修單已被修改：${ticket.location}`,
+      `您在「${ticket.location}」的報修單內容已被修改，請登入系統查看詳情。`,
+    );
+  }
+
+  async notifyRepairDeleted(
+    ticket: RepairTicket,
+    reporter: User,
+    deletedByUserId: string,
+  ): Promise<void> {
+    if (deletedByUserId === ticket.userId) return;
+    await this.send(
+      reporter.email,
+      `您的報修單已被刪除：${ticket.location}`,
+      `您在「${ticket.location}」的報修單已被刪除。`,
+    );
+  }
+
   async notifyRepairUpdate(
     ticket: RepairTicket,
     reporter: User,

@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -20,6 +23,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RepairsService } from './repairs.service';
 import type { RepairTicketFormBody } from './repair-ticket-form.dto';
 import type { UpdateRepairTicketDto } from './update-repair-ticket.dto';
+import type { UpdateRepairTicketContentFormBody } from './update-repair-ticket-content.dto';
 import {
   persistRepairPhoto,
   repairPhotoUploadOptions,
@@ -66,5 +70,37 @@ export class RepairsController {
     @Body() body: UpdateRepairTicketDto,
   ) {
     return this.repairsService.updateStatus(user.id, id, body);
+  }
+
+  // Reporter-side content edit — deliberately a distinct route from the
+  // MAINTENANCE/ADMIN-only PATCH :id above, since the permission model
+  // (owner-or-admin, not role-gated) and payload shape are both different.
+  @Patch(':id/content')
+  @UseInterceptors(FileInterceptor('photo', repairPhotoUploadOptions))
+  async updateContent(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() body: UpdateRepairTicketContentFormBody,
+    @UploadedFile() photo?: Express.Multer.File,
+  ) {
+    const filename = photo ? await persistRepairPhoto(photo) : undefined;
+    return this.repairsService.updateContent(
+      user.id,
+      user.role,
+      id,
+      {
+        location: body.location,
+        category: body.category,
+        description: body.description,
+        removePhoto: body.removePhoto === 'true',
+      },
+      filename ? repairPhotoUrl(filename) : undefined,
+    );
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.repairsService.remove(user.id, user.role, id);
   }
 }

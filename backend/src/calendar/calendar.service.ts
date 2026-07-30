@@ -60,6 +60,39 @@ export class CalendarService {
     }
   }
 
+  // Updates an existing Calendar event in place (title/description/location/
+  // time all re-synced) when an already-CONFIRMED Booking is edited — the
+  // caller (BookingsService.updateCalendarEvent) only calls this when
+  // booking.googleEventId is already set, so unlike syncBookingConfirmed
+  // this never inserts.
+  async updateBookingEvent(
+    booking: Booking,
+    room: Room,
+    account: Account,
+  ): Promise<void> {
+    if (!account.googleRefreshToken || booking.googleEventId === null) {
+      return;
+    }
+    try {
+      const calendar = this.calendarClient(account);
+      await calendar.events.patch({
+        calendarId: 'primary',
+        eventId: booking.googleEventId,
+        requestBody: {
+          summary: booking.title,
+          description: booking.description ?? undefined,
+          location: room.name,
+          start: { dateTime: booking.startTime.toISOString() },
+          end: { dateTime: booking.endTime.toISOString() },
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to update Calendar event for Booking ${booking.id}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async removeBookingEvent(booking: Booking, account: Account): Promise<void> {
     if (isActiveBooking(booking.status) || booking.googleEventId === null) {
       return;

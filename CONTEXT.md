@@ -61,6 +61,9 @@ The condition where a new Booking's time range overlaps an existing Booking in `
 **Booking Deletion**:
 The owner (or an ADMIN) removing a future Booking from all views regardless of its current `Booking Status`. The only self-service way to give up a Booking — there is no separate "cancel" action. Implemented as a soft delete (a `deletedAt` timestamp); a past or in-progress Booking cannot be deleted.
 
+**Booking Editing**:
+The owner (or an ADMIN) changing a future, still-active (`CONFIRMED` or `PENDING_APPROVAL`) Booking's title, description, time range, or Room in place, instead of deleting and recreating it. Changing the time range or Room re-runs the Slot Conflict check and recomputes `Booking Status` exactly as Booking creation would (excluding the Booking's own current slot); editing only the title or description never touches status. A past, in-progress, `REJECTED`, or `CANCELLED` Booking cannot be edited — the same restriction as Booking Deletion.
+
 ### Repairs
 
 **Repair Ticket**:
@@ -69,6 +72,9 @@ _Avoid_: Repair Request, Maintenance Ticket
 
 **Repair Status**:
 One of `PENDING`, `IN_PROGRESS`, `COMPLETED`. Set by whichever MAINTENANCE user picks up the ticket — there is no per-ticket assignee field.
+
+**Repair Ticket Editing/Deletion**:
+The reporter (or an ADMIN) changing a Repair Ticket's location, category, description, or photo, or removing it entirely (soft delete via a `deletedAt` timestamp, mirroring Booking Deletion). Only available while the ticket is still `PENDING` — once a MAINTENANCE user has claimed it (`IN_PROGRESS`) or finished it (`COMPLETED`), neither editing nor deleting is possible.
 
 **Repair Category**:
 An Admin-managed classification for Repair Tickets (e.g. "硬體設備", "冷氣空調"). Categories are freely added/removed by Admins and are not fixed at the code level.

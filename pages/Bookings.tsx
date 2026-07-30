@@ -33,7 +33,7 @@ function slotDate(day: Date, slot: number): Date {
 type SlotRef = { day: Date; slot: number; roomId: string };
 
 export const Bookings: React.FC = () => {
-  const { rooms, bookings, addBooking, deleteBooking, currentUser } = useData();
+  const { rooms, bookings, addBooking, updateBooking, deleteBooking, currentUser } = useData();
   const { success, error, warning, info } = useToast();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'HISTORY'>('CALENDAR');
   const [view, setView] = useState<CalendarViewType>('WEEK');
@@ -74,6 +74,10 @@ export const Bookings: React.FC = () => {
 
   // Booking Form State
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  // The original, unedited Booking being edited — used to compute edit/delete
+  // eligibility against its actual startTime/status, independent of whatever
+  // the user is currently typing into the form below.
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedRoom, setSelectedRoom] = useState(rooms[0]?.id || '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState(''); 
@@ -151,6 +155,7 @@ export const Bookings: React.FC = () => {
 
   const resetForm = () => {
     setEditingBookingId(null);
+    setEditingBooking(null);
     setTitle('');
     setDescription('');
     setDate(new Date().toISOString().split('T')[0]);
@@ -169,17 +174,20 @@ export const Bookings: React.FC = () => {
     setShowModal(true);
   };
 
-  // Opens the read-only detail view for an existing Booking (only the room/
-  // time can be set at creation — there is no reschedule/edit endpoint yet).
+  // Opens the Booking Detail view for an existing Booking. Editable in place
+  // when the Booking is still eligible (see canEditBooking below) — the
+  // owner or an Admin can then change title/description/date/time/Room
+  // directly, same as at creation.
   const openEditModal = (booking: Booking) => {
     if (!currentUser) return;
-    // Permissions check: only the owner or an Admin can view/delete
+    // Permissions check: only the owner or an Admin can view/edit/delete
     if (booking.userId !== currentUser.id && currentUser.role !== UserRole.ADMIN) return;
 
     const start = new Date(booking.startTime);
     const end = new Date(booking.endTime);
 
     setEditingBookingId(booking.id);
+    setEditingBooking(booking);
     setSelectedRoom(booking.roomId);
     setTitle(booking.title);
     setDescription(booking.description || '');
@@ -384,6 +392,67 @@ export const Bookings: React.FC = () => {
           error("所選時段該會議室已被預約，請更換時間或會議室。");
         } else {
           error("預約失敗,請稍後再試");
+        }
+    } finally {
+        setSubmitting(false);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !editingBookingId || !editingBooking) return;
+
+    const start = new Date(`${date}T${startTime}`);
+    const end = new Date(`${date}T${endTime}`);
+
+    if (start >= end) {
+        error("結束時間必須晚於開始時間");
+        return;
+    }
+
+    // Client-side pre-check for immediate feedback; the server's Slot
+    // Conflict check is the real authority (see services/bookings.ts).
+    if (!checkRoomAvailability(selectedRoom)) {
+        error("所選時段該會議室已被預約，請更換時間或會議室。");
+        return;
+    }
+
+    // Only send roomId/startTime/endTime when they actually changed — this
+    // mirrors the backend's own "content-only edits never touch status"
+    // rule, so a pure title/description fix never risks re-triggering
+    // approval.
+    const isRescheduling =
+        selectedRoom !== editingBooking.roomId ||
+        start.getTime() !== new Date(editingBooking.startTime).getTime() ||
+        end.getTime() !== new Date(editingBooking.endTime).getTime();
+
+    if (isRescheduling && editingBooking.status === 'CONFIRMED') {
+        const newRoom = rooms.find(r => r.id === selectedRoom);
+        if (newRoom?.requiresApproval) {
+            const confirmed = window.confirm("此變更會使這筆已核准的預約重新進入待審核狀態，確定要儲存嗎？");
+            if (!confirmed) return;
+        }
+    }
+
+    setSubmitting(true);
+    try {
+        await updateBooking(editingBookingId, {
+            title,
+            description,
+            ...(isRescheduling ? {
+                roomId: selectedRoom,
+                startTime: start.toISOString(),
+                endTime: end.toISOString(),
+            } : {}),
+        });
+        success("預約已更新");
+        setShowModal(false);
+        resetForm();
+    } catch (err) {
+        if (err instanceof BookingConflictError) {
+          error("所選時段該會議室已被預約，請更換時間或會議室。");
+        } else {
+          error("更新失敗,請稍後再試");
         }
     } finally {
         setSubmitting(false);
@@ -643,8 +712,19 @@ export const Bookings: React.FC = () => {
 
   const viewLabels = { 'MONTH': '月', 'WEEK': '週', 'DAY': '日' };
 
-  // Mirrors the History tab's canDelete rule (startTime still in the future).
-  const canDeleteEditingBooking = !!editingBookingId && new Date(`${date}T${startTime}`) > new Date();
+  // Both computed from the original Booking (editingBooking), not the
+  // possibly-edited form fields — eligibility depends on whether the
+  // Booking as it exists today has started, not on what the user is
+  // currently proposing to change it to.
+  // Mirrors the History tab's canDelete rule (startTime still in the future) — any status.
+  const canDeleteEditingBooking = !!editingBooking && new Date(editingBooking.startTime) > new Date();
+  // Mirrors the backend's edit eligibility: future, and still CONFIRMED/PENDING_APPROVAL.
+  const canEditBooking = !!editingBooking && canDeleteEditingBooking &&
+      (editingBooking.status === 'CONFIRMED' || editingBooking.status === 'PENDING_APPROVAL');
+  // Whether the form's fields should be editable right now — always true
+  // when creating, and true when editing only if the Booking is still
+  // eligible (see canEditBooking above).
+  const formEditable = !editingBookingId || canEditBooking;
 
   return (
     <div className="space-y-6 relative">
@@ -881,7 +961,11 @@ export const Bookings: React.FC = () => {
             <div className="px-8 py-5 border-b bg-slate-50 flex justify-between items-center">
               <div>
                  <h3 className="font-bold text-xl text-slate-800">{editingBookingId ? '預約詳情' : '預約會議室'}</h3>
-                 <p className="text-sm text-slate-500 mt-1">{editingBookingId ? '此預約無法修改時間或會議室,如需變更請刪除後重新預約' : '請設定時間並選擇可用的會議室'}</p>
+                 <p className="text-sm text-slate-500 mt-1">
+                    {editingBookingId
+                        ? (canEditBooking ? '可直接修改會議內容、時間或會議室' : '此預約已無法修改，如需異動請刪除後重新預約')
+                        : '請設定時間並選擇可用的會議室'}
+                 </p>
               </div>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full p-1 transition-colors"><X/></button>
             </div>
@@ -889,17 +973,17 @@ export const Bookings: React.FC = () => {
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
                 {/* Left: Form Inputs */}
                 <div className="w-full md:w-1/3 p-6 border-r border-gray-100 bg-white overflow-y-auto">
-                    <form id="booking-form" onSubmit={handleSubmit} className="space-y-6">
+                    <form id="booking-form" onSubmit={editingBookingId ? handleSaveEdit : handleSubmit} className="space-y-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">會議主題 *</label>
-                            <input required disabled={!!editingBookingId} type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:bg-slate-50 disabled:text-slate-500" placeholder="例如：Q4 策略會議" />
+                            <input required disabled={!formEditable} type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:bg-slate-50 disabled:text-slate-500" placeholder="例如：Q4 策略會議" />
                         </div>
 
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">會議內容 (選填)</label>
                             <textarea
                                 rows={3}
-                                disabled={!!editingBookingId}
+                                disabled={!formEditable}
                                 value={description}
                                 onChange={e => setDescription(e.target.value)}
                                 className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none resize-none disabled:bg-slate-50 disabled:text-slate-500"
@@ -909,7 +993,7 @@ export const Bookings: React.FC = () => {
 
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">日期</label>
-                            <input required disabled={!!editingBookingId} type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
+                            <input required disabled={!formEditable} type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                         </div>
 
                         <div className="space-y-2">
@@ -917,15 +1001,15 @@ export const Bookings: React.FC = () => {
                              <div className="grid grid-cols-2 gap-2">
                                 <div className="space-y-1">
                                     <span className="text-xs text-slate-500">開始</span>
-                                    <input required disabled={!!editingBookingId} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
+                                    <input required disabled={!formEditable} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                                 </div>
                                 <div className="space-y-1">
                                     <span className="text-xs text-slate-500">結束</span>
-                                    <input required disabled={!!editingBookingId} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
+                                    <input required disabled={!formEditable} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
                                 </div>
                              </div>
 
-                             {!editingBookingId && (
+                             {formEditable && (
                                <div className="flex gap-2 pt-2">
                                    <button type="button" onClick={() => setDuration(30)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+30分</button>
                                    <button type="button" onClick={() => setDuration(60)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors">+1小時</button>
@@ -951,7 +1035,7 @@ export const Bookings: React.FC = () => {
                             return (
                                 <div
                                     key={room.id}
-                                    onClick={() => !editingBookingId && isAvailable && setSelectedRoom(room.id)}
+                                    onClick={() => formEditable && isAvailable && setSelectedRoom(room.id)}
                                     className={`
                                         relative flex items-center gap-4 p-3 rounded-xl border-2 transition-all cursor-pointer
                                         ${isSelected 
@@ -1024,9 +1108,9 @@ export const Bookings: React.FC = () => {
                  </div>
                  <div className="flex gap-3">
                     <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>關閉</Button>
-                    {!editingBookingId && (
-                        <Button onClick={handleSubmit} disabled={submitting || !checkRoomAvailability(selectedRoom)} isLoading={submitting}>
-                            確認預約
+                    {formEditable && (
+                        <Button onClick={editingBookingId ? handleSaveEdit : handleSubmit} disabled={submitting || !checkRoomAvailability(selectedRoom)} isLoading={submitting}>
+                            {editingBookingId ? '儲存變更' : '確認預約'}
                         </Button>
                     )}
                  </div>

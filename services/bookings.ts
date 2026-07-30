@@ -30,6 +30,27 @@ export async function createBooking(input: CreateBookingInput): Promise<Booking>
   return res.json();
 }
 
+export interface UpdateBookingInput {
+  title?: string;
+  description?: string;
+  roomId?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
+export async function updateBooking(id: string, input: UpdateBookingInput): Promise<Booking> {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
+  });
+  if (res.status === 409) {
+    throw new BookingConflictError('This time slot is already booked');
+  }
+  if (!res.ok) throw new Error('Failed to update booking');
+  return res.json();
+}
+
 export async function deleteBooking(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
     method: 'DELETE',

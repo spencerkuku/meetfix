@@ -17,9 +17,10 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
+import { UpdateBookingDto } from './update-booking.dto';
 import { withUserName } from '../common/with-user-name';
 import { ACTIVE_BOOKING_STATUSES, isActiveBooking } from './booking-status';
-import { assertOwnerOrAdmin } from './assert-owner-or-admin';
+import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
 
 // A Booking's startTime may not be more than this far in the past — small
 // enough to tolerate ordinary clock skew between client and server, not to
@@ -75,6 +76,21 @@ export class BookingsService {
     const account = await this.findAccountFor(booking.userId);
     if (!account) return;
     await this.calendar.removeBookingEvent(booking, account);
+  }
+
+  // Updates an already-synced CONFIRMED Booking's existing Calendar event in
+  // place (title/time/location may all have changed) rather than inserting a
+  // duplicate. Falls back to inserting a new event if none exists yet (e.g.
+  // an earlier sync attempt never succeeded) — same best-effort philosophy
+  // as applyCalendarSync/syncBookingConfirmed.
+  private async updateCalendarEvent(booking: Booking, room: Room): Promise<void> {
+    const account = await this.findAccountFor(booking.userId);
+    if (!account) return;
+    if (!booking.googleEventId) {
+      await this.applyCalendarSync(booking, room);
+      return;
+    }
+    await this.calendar.updateBookingEvent(booking, room, account);
   }
 
   async findAll(): Promise<BookingWithUserName[]> {
@@ -195,6 +211,172 @@ export class BookingsService {
       }
       throw err;
     }
+  }
+
+  // Edits a future, still-active (CONFIRMED/PENDING_APPROVAL) Booking's
+  // content and/or slot. Content-only edits (title/description) never touch
+  // status; a roomId/startTime/endTime change re-validates the slot exactly
+  // like create() and recomputes status from the (possibly new) Room's
+  // requiresApproval, regardless of the previous status — mirroring create()
+  // rather than introducing a parallel set of rules.
+  async update(
+    id: string,
+    userId: string,
+    role: Role,
+    dto: UpdateBookingDto,
+  ): Promise<BookingWithUserName> {
+    const existing = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { user: true, room: true },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException('Booking not found');
+    }
+    assertOwnerOrAdmin(existing, userId, role, 'You can only edit your own Bookings');
+    if (!isActiveBooking(existing.status)) {
+      throw new BadRequestException(
+        'Only a CONFIRMED or PENDING_APPROVAL Booking can be edited',
+      );
+    }
+    if (existing.startTime < new Date()) {
+      throw new BadRequestException(
+        'Cannot edit a past or in-progress Booking',
+      );
+    }
+
+    const isRescheduling =
+      dto.roomId !== undefined ||
+      dto.startTime !== undefined ||
+      dto.endTime !== undefined;
+
+    const startTime = dto.startTime ? new Date(dto.startTime) : existing.startTime;
+    const endTime = dto.endTime ? new Date(dto.endTime) : existing.endTime;
+    const roomId = dto.roomId ?? existing.roomId;
+    const previousStatus = existing.status;
+    let room = existing.room;
+    let status = existing.status;
+
+    if (isRescheduling) {
+      if (
+        Number.isNaN(startTime.getTime()) ||
+        Number.isNaN(endTime.getTime()) ||
+        startTime >= endTime
+      ) {
+        throw new BadRequestException(
+          'endTime must be a valid date after startTime',
+        );
+      }
+      if (startTime.getTime() < Date.now() - PAST_START_TOLERANCE_MS) {
+        throw new BadRequestException('startTime cannot be in the past');
+      }
+      if (endTime.getTime() - startTime.getTime() > MAX_BOOKING_DURATION_MS) {
+        throw new BadRequestException(
+          'A Booking cannot span more than 24 hours',
+        );
+      }
+      const newRoom = await this.prisma.room.findUnique({
+        where: { id: roomId },
+      });
+      if (!newRoom) {
+        throw new NotFoundException('Room not found');
+      }
+      room = newRoom;
+      status = newRoom.requiresApproval
+        ? BookingStatus.PENDING_APPROVAL
+        : BookingStatus.CONFIRMED;
+    }
+
+    let updated: Booking & { user: typeof existing.user };
+    try {
+      updated = await this.prisma.$transaction(
+        async (tx) => {
+          if (isRescheduling) {
+            // Same Slot Conflict rule as create(), excluding this Booking's
+            // own current slot.
+            const conflict = await tx.booking.findFirst({
+              where: {
+                id: { not: id },
+                roomId,
+                status: { in: ACTIVE_BOOKING_STATUSES },
+                deletedAt: null,
+                startTime: { lt: endTime },
+                endTime: { gt: startTime },
+              },
+            });
+            if (conflict) {
+              throw new ConflictException(
+                'This Room is already booked for an overlapping time range',
+              );
+            }
+          }
+          // Conditional on the status we read (not just id), same guard
+          // decide()/remove() already use — closes the race where a
+          // concurrent approve/reject/delete changes the Booking between
+          // our initial read above and this write.
+          const result = await tx.booking.updateMany({
+            where: { id, status: previousStatus, deletedAt: null },
+            data: {
+              ...(dto.title !== undefined ? { title: dto.title } : {}),
+              ...(dto.description !== undefined
+                ? { description: dto.description }
+                : {}),
+              ...(isRescheduling ? { roomId, startTime, endTime, status } : {}),
+            },
+          });
+          if (result.count === 0) {
+            throw new ConflictException(
+              'This Booking was changed concurrently — please retry',
+            );
+          }
+          return tx.booking.findUniqueOrThrow({
+            where: { id },
+            include: { user: true },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (err) {
+      const isSerializationFailure =
+        (err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2034') ||
+        (err instanceof Prisma.PrismaClientUnknownRequestError &&
+          err.message.includes('could not serialize access'));
+      if (isSerializationFailure) {
+        throw new ConflictException(
+          'This Room is already booked for an overlapping time range',
+        );
+      }
+      throw err;
+    }
+
+    if (previousStatus === BookingStatus.CONFIRMED && status === BookingStatus.PENDING_APPROVAL) {
+      await this.removeCalendarEvent(updated);
+      const roomManagers = await this.prisma.user.findMany({
+        where: { role: Role.ROOM_MANAGER },
+      });
+      await this.notifications.notifyBookingSubmittedForApproval(
+        updated,
+        room,
+        roomManagers,
+      );
+    } else if (status === BookingStatus.CONFIRMED) {
+      if (previousStatus === BookingStatus.CONFIRMED) {
+        await this.updateCalendarEvent(updated, room);
+      } else {
+        await this.applyCalendarSync(updated, room);
+      }
+    }
+
+    if (userId !== updated.userId) {
+      await this.notifications.notifyBookingEdited(
+        updated,
+        room,
+        updated.user,
+        userId,
+      );
+    }
+
+    return withUserName(updated);
   }
 
   // Soft-deletes a future Booking regardless of its current status. See

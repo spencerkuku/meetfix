@@ -17,8 +17,8 @@ import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
 import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode, registerWithPassword as registerWithPasswordApi, loginWithPassword as loginWithPasswordApi } from './services/auth';
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
-import { fetchBookings, createBooking, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput } from './services/bookings';
-import { fetchRepairs, createRepairTicket, updateRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput } from './services/repairs';
+import { fetchBookings, createBooking, updateBooking as updateBookingApi, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput, UpdateBookingInput } from './services/bookings';
+import { fetchRepairs, createRepairTicket, updateRepairTicket, updateRepairContent, deleteRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput, UpdateRepairContentInput } from './services/repairs';
 import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
 
@@ -47,11 +47,14 @@ interface DataContextType {
   loginWithPassword: (email: string, password: string) => Promise<void>;
   logout: () => void;
   addBooking: (input: CreateBookingInput) => Promise<void>;
+  updateBooking: (id: string, input: UpdateBookingInput) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
   addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
   updateRepair: (id: string, updates: UpdateRepairTicketInput) => Promise<void>;
+  editRepairContent: (id: string, input: UpdateRepairContentInput, photo?: File) => Promise<void>;
+  deleteRepair: (id: string) => Promise<void>;
   updateUser: (userId: string, data: Partial<User>) => void;
   // Admin-only: real User/Account administration (ticket #4). `users` and
   // `pendingAccounts`/`autoApprovedDomains` are only fetched for an ADMIN
@@ -177,6 +180,11 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setBookings(prev => [...prev, booking]);
   };
 
+  const updateBooking = async (id: string, input: UpdateBookingInput) => {
+    const booking = await updateBookingApi(id, input);
+    setBookings(prev => prev.map(b => b.id === id ? booking : b));
+  };
+
   const deleteBooking = async (id: string) => {
     await deleteBookingApi(id);
     setBookings(prev => prev.filter(b => b.id !== id));
@@ -200,6 +208,16 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const updateRepair = async (id: string, updates: UpdateRepairTicketInput) => {
     const ticket = await updateRepairTicket(id, updates);
     setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
+  };
+
+  const editRepairContent = async (id: string, input: UpdateRepairContentInput, photo?: File) => {
+    const ticket = await updateRepairContent(id, input, photo);
+    setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
+  };
+
+  const deleteRepair = async (id: string) => {
+    await deleteRepairTicket(id);
+    setRepairs(prev => prev.filter(r => r.id !== id));
   };
 
   const updateUserRole = async (userId: string, role: UserRole) => {
@@ -264,8 +282,8 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     <DataContext.Provider value={{
       currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
       loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
-      addBooking, deleteBooking, approveBooking, rejectBooking,
-      addRepair, updateRepair, updateUser,
+      addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking,
+      addRepair, updateRepair, editRepairContent, deleteRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, pendingAccounts, approveAccount,
       autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain, auditLog

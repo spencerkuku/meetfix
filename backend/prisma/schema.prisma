@@ -166,6 +166,10 @@ model RepairTicket {
   status      RepairStatus @default(PENDING)
   adminReply  String?
   createdAt   DateTime     @default(now())
+  // Soft delete: set by the reporter or an ADMIN removing a still-PENDING
+  // Repair Ticket from view. Mirrors Booking.deletedAt (issue #19) — see
+  // issue #25.
+  deletedAt   DateTime?
 }
 
 // Audit Log Entry: an immutable record of who performed a state-changing
