@@ -556,7 +556,20 @@ export const Bookings: React.FC = () => {
     // drag-select in another Room's column at the same day/time. Filtering
     // to a specific Room keeps the single-column layout as before.
     const visibleRooms = filterRoomId === 'ALL' ? rooms : rooms.filter(r => r.id === filterRoomId);
-    const columnsPerDay = Math.max(visibleRooms.length, 1);
+
+    // No Room to show a column for (Rooms still loading, fetch failed, or
+    // none configured yet) — bail out before the grid, rather than reserving
+    // column width for Rooms that don't render any cells.
+    if (visibleRooms.length === 0) {
+      return (
+        <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2 border border-gray-200 rounded-lg">
+          <Monitor size={40} className="text-slate-200" />
+          <p>{rooms.length === 0 ? '尚無會議室，請先請管理員新增會議室' : '找不到符合篩選條件的會議室'}</p>
+        </div>
+      );
+    }
+
+    const columnsPerDay = visibleRooms.length;
     const showRoomSubHeader = columnsPerDay > 1;
 
     const timeGutterWidth = 64;
