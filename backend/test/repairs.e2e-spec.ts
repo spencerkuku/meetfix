@@ -331,7 +331,7 @@ describe('Repairs (e2e)', () => {
         .expect(400);
     });
 
-    it('rejects moving a COMPLETED ticket back to PENDING', async () => {
+    it('rejects moving a COMPLETED ticket back to PENDING (more than one step back)', async () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
@@ -349,6 +349,44 @@ describe('Repairs (e2e)', () => {
         .set('Authorization', `Bearer ${maintenanceToken}`)
         .send({ status: 'PENDING' })
         .expect(400);
+    });
+
+    it('MAINTENANCE can revert a ticket one status step back (IN_PROGRESS -> PENDING, COMPLETED -> IN_PROGRESS)', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      const revertedToPending = await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'PENDING' })
+        .expect(200);
+      expect((revertedToPending.body as RepairTicketResponse).status).toBe(
+        'PENDING',
+      );
+
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+
+      const revertedToInProgress = await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      expect((revertedToInProgress.body as RepairTicketResponse).status).toBe(
+        'IN_PROGRESS',
+      );
     });
 
     it('MAINTENANCE can attach a reply when updating a ticket', async () => {

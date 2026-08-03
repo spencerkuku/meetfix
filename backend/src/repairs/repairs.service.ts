@@ -21,13 +21,23 @@ import { withUserName } from '../common/with-user-name';
 import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
-// Repair Status only ever advances forward — see CONTEXT.md. A ticket's
+// Repair Status advances one step at a time — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`
-// means no MAINTENANCE-driven transition is possible from there.
+// means no further forward transition is possible from there.
 const NEXT_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
   [RepairStatus.PENDING]: RepairStatus.IN_PROGRESS,
   [RepairStatus.IN_PROGRESS]: RepairStatus.COMPLETED,
   [RepairStatus.COMPLETED]: undefined,
+};
+
+// A MAINTENANCE/ADMIN user can also walk a ticket back one step — e.g. to
+// undo a wrong "接手處理"/"標記完成" click, or reopen a ticket closed too
+// soon. Only ever one step, mirroring NEXT_STATUS above: COMPLETED can only
+// go back to IN_PROGRESS, never straight to PENDING.
+const PREV_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
+  [RepairStatus.PENDING]: undefined,
+  [RepairStatus.IN_PROGRESS]: RepairStatus.PENDING,
+  [RepairStatus.COMPLETED]: RepairStatus.IN_PROGRESS,
 };
 
 export type RepairTicketWithUserName = RepairTicket & { userName: string };
@@ -103,7 +113,9 @@ export class RepairsService {
 
     const data: Prisma.RepairTicketUpdateInput = {};
     if (updates.status !== undefined) {
-      if (NEXT_STATUS[previousStatus] !== updates.status) {
+      const isForward = NEXT_STATUS[previousStatus] === updates.status;
+      const isBackward = PREV_STATUS[previousStatus] === updates.status;
+      if (!isForward && !isBackward) {
         throw new BadRequestException(
           `Cannot transition a ${previousStatus} Repair Ticket to ${updates.status}`,
         );

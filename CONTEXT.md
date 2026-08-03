@@ -18,7 +18,7 @@ _Avoid_: Permission, Group
 The default role. Can create Bookings and submit Repair Tickets for themselves.
 
 **MAINTENANCE (role)**:
-Can view and act on all Repair Tickets from a shared, unassigned queue. Claims a ticket by moving its status forward — there is no explicit "assign to me" action.
+Can view and act on all Repair Tickets from a shared, unassigned queue. Claims a ticket by moving its status forward — there is no explicit "assign to me" action. Can also revert a ticket's status one step backward (e.g. undo an accidental claim or reopen a ticket closed too soon) — see Repair Status.
 
 **ROOM_MANAGER (role)**:
 Approves or rejects Bookings for Rooms that require approval.
@@ -71,7 +71,7 @@ A report of a facility problem at a free-text location, filed by a User. Not tie
 _Avoid_: Repair Request, Maintenance Ticket
 
 **Repair Status**:
-One of `PENDING`, `IN_PROGRESS`, `COMPLETED`. Set by whichever MAINTENANCE user picks up the ticket — there is no per-ticket assignee field.
+One of `PENDING`, `IN_PROGRESS`, `COMPLETED`. Set by whichever MAINTENANCE user picks up the ticket — there is no per-ticket assignee field. Normally advances one step forward at a time (`PENDING`→`IN_PROGRESS`→`COMPLETED`, no skipping), but a MAINTENANCE/ADMIN user may also revert it one step backward (`IN_PROGRESS`→`PENDING`, `COMPLETED`→`IN_PROGRESS`) — reverting two steps at once (e.g. `COMPLETED`→`PENDING` directly) is not allowed. Every change, forward or backward, is recorded as an Audit Log Entry and notifies the reporter.
 
 **Repair Ticket Editing/Deletion**:
 The reporter (or an ADMIN) changing a Repair Ticket's location, category, description, or photo, or removing it entirely (soft delete via a `deletedAt` timestamp, mirroring Booking Deletion). Only available while the ticket is still `PENDING` — once a MAINTENANCE user has claimed it (`IN_PROGRESS`) or finished it (`COMPLETED`), neither editing nor deleting is possible.
