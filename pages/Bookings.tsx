@@ -996,7 +996,7 @@ export const Bookings: React.FC = () => {
 
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
                 {/* Left: Form Inputs */}
-                <div className="w-full md:w-1/3 p-6 border-r border-gray-100 bg-white overflow-y-auto">
+                <div className="w-full md:w-2/5 p-8 border-r border-gray-100 bg-white overflow-y-auto">
                     <form id="booking-form" onSubmit={editingBookingId ? handleSaveEdit : handleSubmit} className="space-y-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">會議主題 *</label>
@@ -1022,7 +1022,7 @@ export const Bookings: React.FC = () => {
 
                         <div className="space-y-2">
                              <label className="block text-sm font-bold text-slate-700">時間區間</label>
-                             <div className="grid grid-cols-2 gap-2">
+                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
                                     <span className="text-xs text-slate-500">開始</span>
                                     <input required disabled={!formEditable} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:text-slate-500" />
