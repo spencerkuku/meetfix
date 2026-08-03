@@ -4,7 +4,7 @@ import { useData } from '../App';
 import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
-import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, User, Tag, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, Tag, MapPin, Pencil, Trash2, ZoomIn, Info, User } from 'lucide-react';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 export const Repairs: React.FC = () => {
@@ -13,6 +13,10 @@ export const Repairs: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+  // Full-size photo preview — opened from the detail panel, never a new tab.
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  // The ticket shown in the detail panel (photo lives here, not the table).
+  const [viewingTicket, setViewingTicket] = useState<RepairTicket | null>(null);
 
   // The Repair Ticket being edited, or null when submitting a new one — same
   // "one modal, one editing-id switches its mode" pattern as Bookings.tsx.
@@ -201,80 +205,177 @@ export const Repairs: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid gap-4 animate-fade-in">
-        {filteredRepairs.map(ticket => {
-          const isPrivileged = canSeeSensitiveInfo(ticket);
-          
-          return (
-            <div key={ticket.id} className="bg-white rounded-lg border p-5 shadow-sm transition-shadow hover:shadow-md">
-              <div className="flex flex-col md:flex-row gap-4">
-                {/* Thumbnail if exists */}
-                {ticket.imageUrl && (
-                  <div className="w-full md:w-32 h-32 flex-shrink-0">
-                    <img src={ticket.imageUrl} alt="Issue" className="w-full h-full object-cover rounded-lg border bg-slate-100" />
-                  </div>
-                )}
-                
-                <div className="flex-1 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${getStatusColor(ticket.status)}`}>
-                      {getStatusText(ticket.status)}
-                    </span>
-                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 flex items-center gap-1">
-                      <Tag size={10} /> {ticket.category}
-                    </span>
-                    <span className="text-xs text-slate-500">{new Date(ticket.createdAt).toLocaleDateString()}</span>
-                    {canEditTicket(ticket) && (
-                      <div className="flex items-center gap-1 ml-auto">
-                        <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 rounded" title="編輯報修單">
-                          <Pencil size={14}/>
-                        </button>
-                        <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded" title="刪除報修單">
-                          <Trash2 size={14}/>
-                        </button>
+      <div className="bg-white rounded-lg border shadow-sm overflow-hidden animate-fade-in overflow-x-auto">
+        {filteredRepairs.length > 0 ? (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-gray-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="p-3 pl-4">狀態</th>
+                <th className="p-3">地點 / 分類</th>
+                <th className="p-3">問題描述</th>
+                <th className="p-3">回報人</th>
+                <th className="p-3">日期</th>
+                <th className="p-3 pr-4"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredRepairs.map(ticket => {
+                const isPrivileged = canSeeSensitiveInfo(ticket);
+
+                return (
+                  <tr key={ticket.id} className="text-sm align-top hover:bg-slate-50/60 transition-colors">
+                    <td className="p-3 pl-4 whitespace-nowrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusColor(ticket.status)}`}>
+                        {getStatusText(ticket.status)}
+                      </span>
+                    </td>
+
+                    <td className="p-3 min-w-[140px]">
+                      <div className="font-semibold text-slate-800 flex items-center gap-1">
+                        <MapPin size={13} className="text-slate-400 flex-shrink-0"/>{ticket.location}
                       </div>
-                    )}
-                  </div>
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-1">
+                        <Tag size={9} />{ticket.category}
+                      </span>
+                    </td>
 
-                  <div>
-                    <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
-                      <MapPin size={16} className="text-slate-400"/>
-                      {ticket.location}
-                    </h3>
-                    <p className="text-slate-600 mt-1 whitespace-pre-wrap">{ticket.description}</p>
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-1">
-                     <div className="flex items-center gap-1" title={isPrivileged ? "完整姓名" : "已隱碼"}>
-                        <User size={12}/> 
-                        {isPrivileged ? ticket.userName : maskName(ticket.userName)} 
-                        {ticket.userClass ? ` (${ticket.userClass})` : ''}
-                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Reply View (Read Only) */}
-              {ticket.adminReply && (
-                 <div className="mt-4 pt-4 border-t border-gray-100">
-                    <div className="bg-slate-50 p-3 rounded text-sm">
-                        <div className="flex items-center gap-2 font-semibold text-slate-700 mb-1">
-                        <MessageSquare size={14} /> 報修管理員回覆:
+                    <td className="p-3 min-w-[260px] max-w-[380px]">
+                      <p className="text-slate-700 whitespace-pre-wrap">{ticket.description}</p>
+                      {ticket.adminReply && (
+                        <div className="mt-2 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                          <MessageSquare size={11} className="mt-0.5 flex-shrink-0"/>
+                          <span><span className="font-semibold">管理員回覆：</span>{ticket.adminReply}</span>
                         </div>
-                        <p className="text-slate-600">{ticket.adminReply}</p>
-                    </div>
-                 </div>
-              )}
-            </div>
-          );
-        })}
-        {filteredRepairs.length === 0 && (
-          <div className="text-center py-12 text-slate-400 bg-white rounded-lg border border-dashed">
+                      )}
+                    </td>
+
+                    <td className="p-3 text-slate-500 whitespace-nowrap" title={isPrivileged ? "完整姓名" : "已隱碼"}>
+                      {isPrivileged ? ticket.userName : maskName(ticket.userName)}
+                      {ticket.userClass ? ` (${ticket.userClass})` : ''}
+                    </td>
+
+                    <td className="p-3 text-slate-500 whitespace-nowrap">
+                      {new Date(ticket.createdAt).toLocaleDateString()}
+                    </td>
+
+                    <td className="p-3 pr-4">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setViewingTicket(ticket)} className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded" title="查看詳情">
+                          <Info size={14}/>
+                        </button>
+                        {canEditTicket(ticket) && (
+                          <>
+                            <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded" title="編輯報修單">
+                              <Pencil size={14}/>
+                            </button>
+                            <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded" title="刪除報修單">
+                              <Trash2 size={14}/>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="text-center py-12 text-slate-400">
             <CheckCircle className="mx-auto h-12 w-12 text-slate-200 mb-3"/>
             <p>目前沒有報修紀錄</p>
           </div>
         )}
       </div>
+
+      {/* Ticket Detail Panel — photo lives only here, opened via the 詳情 button */}
+      {viewingTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setViewingTicket(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start sticky top-0 z-10">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusColor(viewingTicket.status)}`}>
+                    {getStatusText(viewingTicket.status)}
+                  </span>
+                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
+                    <Tag size={10} className="inline -mt-0.5 mr-1" />{viewingTicket.category}
+                  </span>
+                </div>
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <MapPin size={16} className="text-slate-400"/>{viewingTicket.location}
+                </h3>
+              </div>
+              <button onClick={() => setViewingTicket(null)} className="text-slate-400 hover:text-slate-600"><X/></button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {viewingTicket.imageUrl ? (
+                <button
+                  type="button"
+                  onClick={() => setPreviewImageUrl(viewingTicket.imageUrl!)}
+                  className="w-full h-48 relative group/img rounded-lg overflow-hidden border bg-slate-100"
+                  title="點擊放大"
+                >
+                  <img src={viewingTicket.imageUrl} alt="Issue" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/30 transition-colors flex items-center justify-center">
+                    <ZoomIn size={22} className="text-white opacity-0 group-hover/img:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              ) : (
+                <div className="w-full h-24 rounded-lg border border-dashed bg-slate-50 flex items-center justify-center text-slate-300">
+                  <ImageIcon size={22} />
+                </div>
+              )}
+
+              <p className="text-slate-700 whitespace-pre-wrap text-sm">{viewingTicket.description}</p>
+
+              <div className="flex items-center gap-2 text-xs text-slate-400" title={canSeeSensitiveInfo(viewingTicket) ? "完整姓名" : "已隱碼"}>
+                <User size={12}/>
+                {canSeeSensitiveInfo(viewingTicket) ? viewingTicket.userName : maskName(viewingTicket.userName)}
+                {viewingTicket.userClass ? ` (${viewingTicket.userClass})` : ''}
+                <span className="mx-1">·</span>
+                {new Date(viewingTicket.createdAt).toLocaleString()}
+              </div>
+
+              {viewingTicket.adminReply && (
+                <div className="bg-slate-50 p-3 rounded border text-sm">
+                  <div className="flex items-center gap-2 font-semibold text-slate-700 mb-1">
+                    <MessageSquare size={14} /> 報修管理員回覆:
+                  </div>
+                  <p className="text-slate-600">{viewingTicket.adminReply}</p>
+                </div>
+              )}
+
+              {canEditTicket(viewingTicket) && (
+                <div className="pt-2 flex justify-end gap-2 border-t">
+                  <Button size="sm" variant="outline" onClick={() => { const t = viewingTicket; setViewingTicket(null); openEditModal(t); }}>
+                    <Pencil size={14} className="mr-1"/> 編輯
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => { handleDeleteTicket(viewingTicket.id); setViewingTicket(null); }}>
+                    <Trash2 size={14} className="mr-1"/> 刪除
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Lightbox */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4" onClick={() => setPreviewImageUrl(null)}>
+          <button
+            type="button"
+            onClick={() => setPreviewImageUrl(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2"
+            title="關閉"
+          >
+            <X size={20} />
+          </button>
+          <img src={previewImageUrl} alt="報修照片預覽" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
 
       {/* New Ticket Modal */}
       {showModal && (
