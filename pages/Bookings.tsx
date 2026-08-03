@@ -572,21 +572,32 @@ export const Bookings: React.FC = () => {
     const columnsPerDay = visibleRooms.length;
     const showRoomSubHeader = columnsPerDay > 1;
 
-    const timeGutterWidth = 64;
-    const perColumnWidth = columnsPerDay > 1 ? 84 : 110;
+    const timeGutterWidth = 88;
+    const perColumnWidth = columnsPerDay > 1 ? 96 : 130;
     const gridMinWidth = timeGutterWidth + weekDays.length * columnsPerDay * perColumnWidth;
     const gridTemplateColumns = `${timeGutterWidth}px repeat(${weekDays.length * columnsPerDay}, minmax(${perColumnWidth}px, 1fr))`;
 
+    // Each time-slot row gets an equal 1fr share of the available height,
+    // but never below SLOT_MIN_HEIGHT — on a normal screen that means the
+    // whole day fits with no scroll, but once real bookings (stacked
+    // back-to-back) need more room than the fractional share gives them,
+    // rows stop shrinking and the container scrolls instead of clipping
+    // booking text. Horizontal scroll is separate (still needed when there
+    // are many day/room columns).
+    const SLOT_MIN_HEIGHT = 32;
+    const headerRowTemplate = showRoomSubHeader ? 'auto auto' : 'auto';
+    const gridTemplateRows = `${headerRowTemplate} repeat(${SLOTS_PER_DAY}, minmax(${SLOT_MIN_HEIGHT}px, 1fr))`;
+
     return (
       <div
-        className="overflow-x-auto border border-gray-200 rounded-lg select-none"
+        className="overflow-auto border border-gray-200 rounded-lg select-none h-[calc(100vh-320px)] min-h-[320px]"
         onMouseLeave={() => setIsSelecting(false)}
         onTouchMove={handleGridTouchMove}
         onTouchEnd={handleGridTouchEnd}
       >
-        <div className="grid" style={{ gridTemplateColumns, minWidth: gridMinWidth }}>
+        <div className="grid min-h-full" style={{ gridTemplateColumns, gridTemplateRows, minWidth: gridMinWidth }}>
            <div
-             className="bg-gray-50 p-2 sm:p-4 border-b border-r text-xs font-bold text-slate-400 text-center uppercase sticky left-0 z-10"
+             className="bg-gray-50 p-2 sm:p-4 border-b border-r text-xs font-bold text-slate-400 text-center uppercase sticky top-0 left-0 z-20"
              style={{ gridRow: showRoomSubHeader ? 'span 2' : 'span 1' }}
            >
              時間
@@ -595,7 +606,7 @@ export const Bookings: React.FC = () => {
              <div
                key={i}
                style={{ gridColumn: `span ${columnsPerDay}` }}
-               className={`bg-gray-50 p-2 sm:p-4 border-b text-center border-r last:border-r-0 ${d.toDateString() === new Date().toDateString() ? 'bg-blue-50' : ''}`}
+               className={`bg-gray-50 p-2 sm:p-4 border-b text-center border-r last:border-r-0 sticky top-0 z-10 ${d.toDateString() === new Date().toDateString() ? 'bg-blue-50' : ''}`}
              >
                <div className="font-bold text-slate-700">{['週日', '週一', '週二', '週三', '週四', '週五', '週六'][d.getDay()]}</div>
                <div className={`text-sm ${d.toDateString() === new Date().toDateString() ? 'text-blue-600' : 'text-slate-500'}`}>{d.getDate()}</div>
@@ -614,8 +625,8 @@ export const Bookings: React.FC = () => {
 
            {timeSlots.map(slot => (
              <React.Fragment key={slot}>
-               <div className="border-r border-b p-2 text-xs text-slate-400 text-center bg-white sticky left-0 z-10 h-8 flex items-center justify-center">
-                 {slot % 2 === 0 ? formatSlotTime(slot) : ''}
+               <div className={`border-r border-b p-1 text-center bg-white sticky left-0 z-10 h-full flex items-center justify-center overflow-hidden ${slot % 2 === 0 ? 'text-sm font-bold text-slate-700' : 'text-xs text-slate-400'}`}>
+                 {formatSlotTime(slot)}
                </div>
 
                {weekDays.map((day, i) => {
@@ -654,7 +665,7 @@ export const Bookings: React.FC = () => {
                         data-cell-day={dayStr}
                         data-cell-slot={slot}
                         data-cell-room={room.id}
-                        className={`border-r border-b p-1 relative h-8 transition-colors
+                        className={`border-r border-b p-1 relative h-full transition-colors
                           ${isPast ? 'bg-[repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6_10px,#e5e7eb_10px,#e5e7eb_20px)] cursor-not-allowed' : (isSelected ? 'bg-blue-200/50' : 'bg-white hover:bg-gray-50')}`}
 
                         onMouseDown={() => handleMouseDown({ day, slot, roomId: room.id })}
