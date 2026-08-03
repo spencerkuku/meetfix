@@ -205,81 +205,143 @@ export const Repairs: React.FC = () => {
         ))}
       </div>
 
-      <div className="bg-white rounded-lg border shadow-sm overflow-hidden animate-fade-in overflow-x-auto">
+      <div className="bg-white rounded-lg border shadow-sm overflow-hidden animate-fade-in">
         {filteredRepairs.length > 0 ? (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-gray-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <th className="p-3 pl-4">狀態</th>
-                <th className="p-3">地點 / 分類</th>
-                <th className="p-3">問題描述</th>
-                <th className="p-3">回報人</th>
-                <th className="p-3">日期</th>
-                <th className="p-3 pr-4"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
+          <>
+            {/* Desktop table — md and up */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-gray-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="p-3 pl-4">狀態</th>
+                    <th className="p-3">地點 / 分類</th>
+                    <th className="p-3">問題描述</th>
+                    <th className="p-3">回報人</th>
+                    <th className="p-3">日期</th>
+                    <th className="p-3 pr-4"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredRepairs.map(ticket => {
+                    const isPrivileged = canSeeSensitiveInfo(ticket);
+
+                    return (
+                      <tr key={ticket.id} className="text-sm align-top hover:bg-slate-50/60 transition-colors">
+                        <td className="p-3 pl-4 whitespace-nowrap">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusColor(ticket.status)}`}>
+                            {getStatusText(ticket.status)}
+                          </span>
+                        </td>
+
+                        <td className="p-3 min-w-[140px]">
+                          <div className="font-semibold text-slate-800 flex items-center gap-1">
+                            <MapPin size={13} className="text-slate-400 flex-shrink-0"/>{ticket.location}
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-1">
+                            <Tag size={9} />{ticket.category}
+                          </span>
+                        </td>
+
+                        <td className="p-3 min-w-[260px] max-w-[380px]">
+                          <p className="text-slate-700 line-clamp-2">{ticket.description}</p>
+                          {ticket.adminReply && (
+                            <div className="mt-2 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                              <MessageSquare size={11} className="mt-0.5 flex-shrink-0"/>
+                              <span className="line-clamp-2"><span className="font-semibold">管理員回覆：</span>{ticket.adminReply}</span>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="p-3 text-slate-500 whitespace-nowrap" title={isPrivileged ? "完整姓名" : "已隱碼"}>
+                          {isPrivileged ? ticket.userName : maskName(ticket.userName)}
+                          {ticket.userClass ? ` (${ticket.userClass})` : ''}
+                        </td>
+
+                        <td className="p-3 text-slate-500 whitespace-nowrap">
+                          {new Date(ticket.createdAt).toLocaleDateString()}
+                        </td>
+
+                        <td className="p-3 pr-4">
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => setViewingTicket(ticket)} className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded" title="查看詳情" aria-label="查看詳情">
+                              <Info size={14}/>
+                            </button>
+                            {canEditTicket(ticket) && (
+                              <>
+                                <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded" title="編輯報修單" aria-label="編輯報修單">
+                                  <Pencil size={14}/>
+                                </button>
+                                <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded" title="刪除報修單" aria-label="刪除報修單">
+                                  <Trash2 size={14}/>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards — below md */}
+            <div className="md:hidden divide-y divide-gray-100">
               {filteredRepairs.map(ticket => {
                 const isPrivileged = canSeeSensitiveInfo(ticket);
 
                 return (
-                  <tr key={ticket.id} className="text-sm align-top hover:bg-slate-50/60 transition-colors">
-                    <td className="p-3 pl-4 whitespace-nowrap">
+                  <div key={ticket.id} className="p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusColor(ticket.status)}`}>
                         {getStatusText(ticket.status)}
                       </span>
-                    </td>
+                      <span className="text-xs text-slate-400 whitespace-nowrap">{new Date(ticket.createdAt).toLocaleDateString()}</span>
+                    </div>
 
-                    <td className="p-3 min-w-[140px]">
+                    <div>
                       <div className="font-semibold text-slate-800 flex items-center gap-1">
                         <MapPin size={13} className="text-slate-400 flex-shrink-0"/>{ticket.location}
                       </div>
                       <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-1">
                         <Tag size={9} />{ticket.category}
                       </span>
-                    </td>
+                    </div>
 
-                    <td className="p-3 min-w-[260px] max-w-[380px]">
-                      <p className="text-slate-700 whitespace-pre-wrap">{ticket.description}</p>
-                      {ticket.adminReply && (
-                        <div className="mt-2 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1">
-                          <MessageSquare size={11} className="mt-0.5 flex-shrink-0"/>
-                          <span><span className="font-semibold">管理員回覆：</span>{ticket.adminReply}</span>
-                        </div>
-                      )}
-                    </td>
+                    <p className="text-slate-700 text-sm line-clamp-3">{ticket.description}</p>
 
-                    <td className="p-3 text-slate-500 whitespace-nowrap" title={isPrivileged ? "完整姓名" : "已隱碼"}>
-                      {isPrivileged ? ticket.userName : maskName(ticket.userName)}
-                      {ticket.userClass ? ` (${ticket.userClass})` : ''}
-                    </td>
-
-                    <td className="p-3 text-slate-500 whitespace-nowrap">
-                      {new Date(ticket.createdAt).toLocaleDateString()}
-                    </td>
-
-                    <td className="p-3 pr-4">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setViewingTicket(ticket)} className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded" title="查看詳情">
-                          <Info size={14}/>
-                        </button>
-                        {canEditTicket(ticket) && (
-                          <>
-                            <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded" title="編輯報修單">
-                              <Pencil size={14}/>
-                            </button>
-                            <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded" title="刪除報修單">
-                              <Trash2 size={14}/>
-                            </button>
-                          </>
-                        )}
+                    {ticket.adminReply && (
+                      <div className="flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                        <MessageSquare size={11} className="mt-0.5 flex-shrink-0"/>
+                        <span className="line-clamp-2"><span className="font-semibold">管理員回覆：</span>{ticket.adminReply}</span>
                       </div>
-                    </td>
-                  </tr>
+                    )}
+
+                    <div className="text-xs text-slate-500" title={isPrivileged ? "完整姓名" : "已隱碼"}>
+                      回報人：{isPrivileged ? ticket.userName : maskName(ticket.userName)}
+                      {ticket.userClass ? ` (${ticket.userClass})` : ''}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
+                      <button onClick={() => setViewingTicket(ticket)} className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-2 rounded" title="查看詳情" aria-label="查看詳情">
+                        <Info size={16}/>
+                      </button>
+                      {canEditTicket(ticket) && (
+                        <>
+                          <button onClick={() => openEditModal(ticket)} className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-2 rounded" title="編輯報修單" aria-label="編輯報修單">
+                            <Pencil size={16}/>
+                          </button>
+                          <button onClick={() => handleDeleteTicket(ticket.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded" title="刪除報修單" aria-label="刪除報修單">
+                            <Trash2 size={16}/>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          </>
         ) : (
           <div className="text-center py-12 text-slate-400">
             <CheckCircle className="mx-auto h-12 w-12 text-slate-200 mb-3"/>
