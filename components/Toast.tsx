@@ -4,14 +4,25 @@ import { X, CheckCircle2, AlertCircle, Info, AlertTriangle } from 'lucide-react'
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: string;
   type: ToastType;
   message: string;
+  action?: ToastAction;
+}
+
+interface ShowToastOptions {
+  action?: ToastAction;
+  duration?: number;
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string, type?: ToastType, options?: ShowToastOptions) => void;
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
@@ -35,14 +46,15 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info', options?: ShowToastOptions) => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, type, message }]);
+    setToasts((prev) => [...prev, { id, type, message, action: options?.action }]);
 
-    // Auto dismiss after 3 seconds
+    // Auto dismiss after 3-5s — actionable toasts (e.g. Undo) get the longer
+    // end of that window so there's time to react.
     setTimeout(() => {
       removeToast(id);
-    }, 3000);
+    }, options?.duration ?? 3000);
   }, [removeToast]);
 
   const success = (msg: string) => showToast(msg, 'success');
@@ -74,9 +86,18 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               {toast.type === 'warning' && <AlertTriangle size={20} className="text-yellow-500" />}
             </div>
             <p className="text-sm font-medium flex-1">{toast.message}</p>
-            <button 
+            {toast.action && (
+              <button
+                onClick={() => { toast.action!.onClick(); removeToast(toast.id); }}
+                className="text-sm font-semibold underline underline-offset-2 hover:opacity-70 transition-opacity flex-shrink-0"
+              >
+                {toast.action.label}
+              </button>
+            )}
+            <button
               onClick={() => removeToast(toast.id)}
               className="text-slate-400 hover:text-slate-600 transition-colors"
+              aria-label="關閉通知"
             >
               <X size={16} />
             </button>
