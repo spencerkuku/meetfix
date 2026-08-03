@@ -275,7 +275,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
             </button>
           </div>
-          {!collapsed && <p className="text-xs text-slate-400 mt-1">智慧會議與報修系統</p>}
+          {!collapsed && <p className="text-xs text-slate-400 mt-1">會議與報修系統</p>}
         </div>
 
         {renderNav(collapsed)}
