@@ -357,7 +357,7 @@ export const RepairManagement: React.FC = () => {
       {/* Ticket Detail Drawer — photo, full description, reporter info,
           status change, and reply all live here as one surface. */}
       {viewingTicket && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={closeDetail}>
+        <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/70 p-4 pt-12 sm:pt-20 overflow-y-auto" onClick={closeDetail}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start flex-shrink-0">
               <div>
@@ -378,8 +378,9 @@ export const RepairManagement: React.FC = () => {
 
             <div className="p-6 overflow-y-auto space-y-4">
               {/* Photo — default-expanded, no click needed to see it clearly.
-                  Click still opens the full-size lightbox. */}
-              {viewingTicket.imageUrl ? (
+                  Click still opens the full-size lightbox. Omitted entirely
+                  when the ticket has no photo, instead of a placeholder. */}
+              {viewingTicket.imageUrl && (
                 <button
                   type="button"
                   onClick={() => setPreviewImageUrl(viewingTicket.imageUrl!)}
@@ -391,10 +392,6 @@ export const RepairManagement: React.FC = () => {
                     <ZoomIn size={22} className="text-white opacity-0 group-hover/img:opacity-100 transition-opacity" />
                   </div>
                 </button>
-              ) : (
-                <div className="w-full h-24 rounded-lg border border-dashed bg-slate-50 flex items-center justify-center text-slate-300">
-                  <ImageIcon size={22} />
-                </div>
               )}
 
               <p className="text-slate-700 text-sm whitespace-pre-wrap p-3 bg-slate-50 rounded border border-slate-100">{viewingTicket.description}</p>

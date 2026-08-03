@@ -352,8 +352,8 @@ export const Repairs: React.FC = () => {
 
       {/* Ticket Detail Panel — photo lives only here, opened via the 詳情 button */}
       {viewingTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setViewingTicket(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-4 pt-12 sm:pt-20 overflow-y-auto" onClick={() => setViewingTicket(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start sticky top-0 z-10">
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -372,11 +372,11 @@ export const Repairs: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-4">
-              {viewingTicket.imageUrl ? (
+              {viewingTicket.imageUrl && (
                 <button
                   type="button"
                   onClick={() => setPreviewImageUrl(viewingTicket.imageUrl!)}
-                  className="w-full h-48 relative group/img rounded-lg overflow-hidden border bg-slate-100"
+                  className="w-full h-64 relative group/img rounded-lg overflow-hidden border bg-slate-100"
                   title="點擊放大"
                 >
                   <img src={viewingTicket.imageUrl} alt="Issue" className="w-full h-full object-cover" />
@@ -384,10 +384,6 @@ export const Repairs: React.FC = () => {
                     <ZoomIn size={22} className="text-white opacity-0 group-hover/img:opacity-100 transition-opacity" />
                   </div>
                 </button>
-              ) : (
-                <div className="w-full h-24 rounded-lg border border-dashed bg-slate-50 flex items-center justify-center text-slate-300">
-                  <ImageIcon size={22} />
-                </div>
               )}
 
               <p className="text-slate-700 whitespace-pre-wrap text-sm">{viewingTicket.description}</p>
