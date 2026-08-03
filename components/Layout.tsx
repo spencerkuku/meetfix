@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../App';
 import { UserRole } from '../types';
@@ -19,10 +19,14 @@ import {
   Menu,
   ClipboardList,
   History,
-  CheckCircle2
+  CheckCircle2,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
+
+const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, logout, updateUser } = useData();
@@ -32,6 +36,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [linkingGoogle, setLinkingGoogle] = useState(false);
+  // Desktop sidebar collapse — icon-only when true. Mobile's overlay menu is
+  // unaffected. Persisted so the user's choice survives a reload.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
 
   // Profile Form State
   const [profileName, setProfileName] = useState('');
@@ -45,8 +59,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const isActive = (path: string) => location.pathname === path;
   
-  const navItemClass = (path: string) => `
+  const navItemClass = (path: string, isCollapsed: boolean) => `
     flex items-center gap-3 px-3 py-2 rounded-lg transition-all
+    ${isCollapsed ? 'justify-center' : ''}
     ${isActive(path) ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'}
   `;
 
@@ -173,20 +188,28 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const hasAnyManagementAccess = managementItems.some(item => hasAccess(item.roles));
 
-  const renderNav = () => (
+  const renderNav = (isCollapsed: boolean = false) => (
     <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
       {/* General Section */}
       <div className="space-y-1">
-        <div className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">一般功能</div>
+        {!isCollapsed && (
+          <div className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">一般功能</div>
+        )}
         {generalItems.map((item) => {
           // Guest access logic
           if (!currentUser && !['/bookings', '/repairs'].includes(item.path)) return null;
           if (currentUser && !item.roles.includes(currentUser.role)) return null;
 
           return (
-            <Link key={item.path} to={item.path} className={navItemClass(item.path)} onClick={() => setMobileMenuOpen(false)}>
+            <Link
+              key={item.path}
+              to={item.path}
+              className={navItemClass(item.path, isCollapsed)}
+              onClick={() => setMobileMenuOpen(false)}
+              title={isCollapsed ? item.label : undefined}
+            >
               {item.icon}
-              <span>{item.label}</span>
+              {!isCollapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
@@ -196,14 +219,22 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {currentUser && hasAnyManagementAccess && (
         <div className="space-y-1">
           <div className="my-4 border-t border-slate-200" />
-          <div className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">管理專區</div>
-          
+          {!isCollapsed && (
+            <div className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">管理專區</div>
+          )}
+
           {managementItems.map((item) => {
              if (!hasAccess(item.roles)) return null;
              return (
-              <Link key={item.path} to={item.path} className={navItemClass(item.path)} onClick={() => setMobileMenuOpen(false)}>
+              <Link
+                key={item.path}
+                to={item.path}
+                className={navItemClass(item.path, isCollapsed)}
+                onClick={() => setMobileMenuOpen(false)}
+                title={isCollapsed ? item.label : undefined}
+              >
                 {item.icon}
-                <span>{item.label}</span>
+                {!isCollapsed && <span>{item.label}</span>}
               </Link>
              );
           })}
@@ -226,22 +257,34 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   return (
     <div className="min-h-screen flex bg-gray-50">
       {/* Desktop Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 fixed h-full z-20 hidden md:flex flex-col shadow-sm">
-        <div className="p-6 border-b border-gray-100">
-          <div className="flex items-center gap-2 text-blue-600 font-bold text-xl">
-            <Calendar className="h-8 w-8" />
-            <span>MeetFix</span>
+      <aside className={`${collapsed ? 'w-[72px]' : 'w-64'} bg-white border-r border-gray-200 fixed h-full z-20 hidden md:flex flex-col shadow-sm transition-[width] duration-200`}>
+        <div className={`border-b border-gray-100 ${collapsed ? 'p-3' : 'p-6'}`}>
+          <div className={`flex items-center text-blue-600 font-bold text-xl ${collapsed ? 'justify-center' : 'justify-between gap-2'}`}>
+            {!collapsed && (
+              <div className="flex items-center gap-2 min-w-0">
+                <Calendar className="h-8 w-8 flex-shrink-0" />
+                <span className="truncate">MeetFix</span>
+              </div>
+            )}
+            <button
+              onClick={() => setCollapsed(c => !c)}
+              className="text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg p-1.5 flex-shrink-0 transition-colors"
+              title={collapsed ? '展開側邊欄' : '收合側邊欄'}
+              aria-label={collapsed ? '展開側邊欄' : '收合側邊欄'}
+            >
+              {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+            </button>
           </div>
-          <p className="text-xs text-slate-400 mt-1">智慧會議與報修系統</p>
+          {!collapsed && <p className="text-xs text-slate-400 mt-1">智慧會議與報修系統</p>}
         </div>
 
-        {renderNav()}
+        {renderNav(collapsed)}
 
-        <div className="p-4 border-t border-gray-100 bg-slate-50/50">
+        <div className={`border-t border-gray-100 bg-slate-50/50 ${collapsed ? 'p-2' : 'p-4'}`}>
           {currentUser ? (
-            <div className="space-y-4">
-              <div 
-                className="flex items-center gap-3 px-2 cursor-pointer hover:bg-white rounded-lg p-2 transition-colors group relative border border-transparent hover:border-slate-200 hover:shadow-sm"
+            <div className="space-y-3">
+              <div
+                className={`flex items-center cursor-pointer hover:bg-white rounded-lg transition-colors group relative border border-transparent hover:border-slate-200 hover:shadow-sm ${collapsed ? 'justify-center p-2' : 'gap-3 px-2 p-2'}`}
                 onClick={handleOpenProfile}
                 title="點擊編輯個人資料"
               >
@@ -251,19 +294,27 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                       <Edit2 size={10} className="text-slate-500"/>
                    </div>
                 </div>
-                <div className="overflow-hidden">
-                  <p className="text-sm font-medium truncate group-hover:text-blue-600 transition-colors">{currentUser.name}</p>
-                  <p className="text-xs text-slate-500 truncate">{getRoleName(currentUser.role)}</p>
-                </div>
+                {!collapsed && (
+                  <div className="overflow-hidden">
+                    <p className="text-sm font-medium truncate group-hover:text-blue-600 transition-colors">{currentUser.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{getRoleName(currentUser.role)}</p>
+                  </div>
+                )}
               </div>
-              <Button variant="outline" onClick={handleLogout} className="w-full justify-start text-sm bg-white">
+              <Button
+                variant="outline"
+                onClick={handleLogout}
+                className={`w-full bg-white ${collapsed ? 'justify-center px-0' : 'justify-start text-sm'}`}
+                title={collapsed ? '登出' : undefined}
+                aria-label="登出"
+              >
                 <LogOut size={16} />
-                登出
+                {!collapsed && '登出'}
               </Button>
             </div>
           ) : (
             <Button onClick={() => navigate('/')} className="w-full">
-              登入
+              {collapsed ? <UserCircle size={20} /> : '登入'}
             </Button>
           )}
         </div>
@@ -301,7 +352,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8 mt-14 md:mt-0 overflow-x-hidden">
+      <main className={`flex-1 ${collapsed ? 'md:ml-[72px]' : 'md:ml-64'} p-4 md:p-8 mt-14 md:mt-0 overflow-x-hidden transition-[margin] duration-200`}>
         {children}
       </main>
 
