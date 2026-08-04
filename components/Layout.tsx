@@ -109,50 +109,50 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Definition of Navigation Groups
   const generalItems = [
-    { 
-      path: '/bookings', 
-      label: '會議室預約', 
-      icon: <Calendar size={20} />, 
-      roles: [UserRole.GUEST, UserRole.USER, UserRole.ROOM_MANAGER, UserRole.ADMIN, UserRole.MAINTENANCE] 
+    {
+      path: '/bookings',
+      label: '會議室預約',
+      icon: <Calendar size={20} />,
+      roles: [UserRole.GUEST, UserRole.USER, UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
-    { 
-      path: '/repairs', 
-      label: '設施報修', 
-      icon: <Wrench size={20} />, 
-      roles: [UserRole.GUEST, UserRole.USER, UserRole.MAINTENANCE, UserRole.ROOM_MANAGER, UserRole.ADMIN] 
+    {
+      path: '/repairs',
+      label: '設施報修',
+      icon: <Wrench size={20} />,
+      roles: [UserRole.GUEST, UserRole.USER, UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
   ];
 
   const managementItems = [
-    { 
-      path: '/dashboard', 
-      label: '統計儀表板', 
-      icon: <LayoutDashboard size={20} />, 
-      roles: [UserRole.MAINTENANCE, UserRole.ROOM_MANAGER, UserRole.ADMIN] 
+    {
+      path: '/dashboard',
+      label: '統計儀表板',
+      icon: <LayoutDashboard size={20} />,
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
-    { 
-      path: '/repair-management', 
-      label: '報修作業中心', 
-      icon: <ClipboardList size={20} />, 
-      roles: [UserRole.MAINTENANCE, UserRole.ADMIN] 
+    {
+      path: '/repair-management',
+      label: '報修作業中心',
+      icon: <ClipboardList size={20} />,
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
-    { 
-      path: '/approvals', 
-      label: '預約審核', 
-      icon: <FileCheck size={20} />, 
-      roles: [UserRole.ROOM_MANAGER, UserRole.ADMIN] 
+    {
+      path: '/approvals',
+      label: '預約審核',
+      icon: <FileCheck size={20} />,
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
-    { 
-      path: '/rooms', 
-      label: '會議室設定', 
-      icon: <DoorOpen size={20} />, 
-      roles: [UserRole.ROOM_MANAGER, UserRole.ADMIN] 
+    {
+      path: '/rooms',
+      label: '會議室設定',
+      icon: <DoorOpen size={20} />,
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
     {
       path: '/admin',
       label: '系統設定',
       icon: <Settings size={20} />,
-      roles: [UserRole.ADMIN, UserRole.MAINTENANCE]
+      roles: [UserRole.ADMIN, UserRole.FACILITY_MANAGER]
     },
     {
       path: '/audit-log',
@@ -227,8 +227,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const getRoleName = (role: UserRole) => {
     switch (role) {
       case UserRole.ADMIN: return '系統管理員';
-      case UserRole.MAINTENANCE: return '報修管理員';
-      case UserRole.ROOM_MANAGER: return '會議室管理員';
+      case UserRole.FACILITY_MANAGER: return '設施管理員';
       case UserRole.USER: return '一般使用者';
       case UserRole.GUEST: return '訪客';
       default: return role;

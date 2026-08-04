@@ -24,18 +24,9 @@ describe('canSeeReporterDetails', () => {
     );
   });
 
-  it('shows details to MAINTENANCE regardless of ownership', () => {
+  it('shows details to FACILITY_MANAGER regardless of ownership', () => {
     expect(
-      canSeeReporterDetails('MAINTENANCE', 'caller-1', 'reporter-1'),
-    ).toBe(true);
-  });
-
-  it('shows details to ROOM_MANAGER only when they are the reporter', () => {
-    expect(
-      canSeeReporterDetails('ROOM_MANAGER', 'caller-1', 'reporter-1'),
-    ).toBe(false);
-    expect(
-      canSeeReporterDetails('ROOM_MANAGER', 'reporter-1', 'reporter-1'),
+      canSeeReporterDetails('FACILITY_MANAGER', 'caller-1', 'reporter-1'),
     ).toBe(true);
   });
 

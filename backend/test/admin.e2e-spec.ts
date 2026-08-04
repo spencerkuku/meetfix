@@ -214,7 +214,7 @@ describe('Admin (e2e)', () => {
       await apiRequest(app)
         .patch(`/admin/accounts/${entry!.id}/approve`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ role: 'MAINTENANCE' })
+        .send({ role: 'FACILITY_MANAGER' })
         .expect(200);
 
       const login = await apiRequest(app)
@@ -274,9 +274,9 @@ describe('Admin (e2e)', () => {
           })
         ).id}/role`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ role: 'ROOM_MANAGER' })
+        .send({ role: 'FACILITY_MANAGER' })
         .expect(200);
-      expect((res.body as { role: string }).role).toBe('ROOM_MANAGER');
+      expect((res.body as { role: string }).role).toBe('FACILITY_MANAGER');
 
       await prisma.user.update({
         where: { email: 'plainuser@school.edu.tw' },
@@ -316,7 +316,7 @@ describe('Admin (e2e)', () => {
       await apiRequest(app)
         .patch(`/admin/users/${user.id}/role`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ role: 'MAINTENANCE' })
+        .send({ role: 'FACILITY_MANAGER' })
         .expect(400);
     });
 
@@ -574,7 +574,7 @@ describe('Admin (e2e)', () => {
           action: 'ROLE_CHANGE',
           targetType: 'User',
           targetId: 'irrelevant',
-          detail: 'Role changed from USER to ROOM_MANAGER',
+          detail: 'Role changed from USER to FACILITY_MANAGER',
         },
       });
 
@@ -592,7 +592,7 @@ describe('Admin (e2e)', () => {
       ).toHaveLength(0);
 
       const priorEntry = await prisma.auditLogEntry.findFirstOrThrow({
-        where: { action: 'ROLE_CHANGE', detail: { contains: 'ROOM_MANAGER' } },
+        where: { action: 'ROLE_CHANGE', detail: { contains: 'FACILITY_MANAGER' } },
       });
       expect(priorEntry.actorId).toBeNull();
       expect(priorEntry.actorName).toBe('delete-target@school.edu.tw');

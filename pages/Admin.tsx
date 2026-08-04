@@ -21,8 +21,7 @@ export const Admin: React.FC = () => {
 
   const roleLabels = {
     [UserRole.ADMIN]: '系統管理員',
-    [UserRole.MAINTENANCE]: '報修管理員',
-    [UserRole.ROOM_MANAGER]: '會議室管理員',
+    [UserRole.FACILITY_MANAGER]: '設施管理員',
     [UserRole.USER]: '一般使用者',
     [UserRole.GUEST]: '訪客'
   };
@@ -197,8 +196,7 @@ export const Admin: React.FC = () => {
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                         ${user.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' :
-                          user.role === UserRole.MAINTENANCE ? 'bg-orange-100 text-orange-800' :
-                          user.role === UserRole.ROOM_MANAGER ? 'bg-purple-100 text-purple-800' :
+                          user.role === UserRole.FACILITY_MANAGER ? 'bg-orange-100 text-orange-800' :
                           'bg-blue-100 text-blue-800'}`}>
                         {roleLabels[user.role]}
                       </span>
@@ -350,7 +348,7 @@ export const Admin: React.FC = () => {
         </section>
       )}
 
-      {/* Category Management Section - Available to ADMIN and MAINTENANCE */}
+      {/* Category Management Section - Available to ADMIN and FACILITY_MANAGER */}
       <section className="space-y-6 animate-fade-in">
          <div className="flex justify-between items-center border-b pb-2">
            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag size={24} className="text-orange-500"/> 報修分類管理</h2>

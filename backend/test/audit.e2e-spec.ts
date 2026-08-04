@@ -25,9 +25,8 @@ describe('Audit Log (e2e)', () => {
   let prisma: PrismaService;
   let adminToken: string;
   let adminId: string;
-  let roomManagerToken: string;
+  let facilityManagerToken: string;
   let userToken: string;
-  let maintenanceToken: string;
   let roomId: string;
 
   async function tokenFor(
@@ -62,13 +61,10 @@ describe('Audit Log (e2e)', () => {
     const admin = await tokenFor('audit-admin@school.edu.tw', Role.ADMIN);
     adminToken = admin.token;
     adminId = admin.id;
-    roomManagerToken = (
-      await tokenFor('audit-rm@school.edu.tw', Role.ROOM_MANAGER)
+    facilityManagerToken = (
+      await tokenFor('audit-facility@school.edu.tw', Role.FACILITY_MANAGER)
     ).token;
     userToken = (await tokenFor('audit-user@school.edu.tw', Role.USER)).token;
-    maintenanceToken = (
-      await tokenFor('audit-maint@school.edu.tw', Role.MAINTENANCE)
-    ).token;
 
     const room = await prisma.room.create({
       data: {
@@ -110,7 +106,7 @@ describe('Audit Log (e2e)', () => {
     await apiRequest(app)
       .patch(`/admin/users/${target.id}/role`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ role: 'ROOM_MANAGER' })
+      .send({ role: 'FACILITY_MANAGER' })
       .expect(200);
 
     const entries = await prisma.auditLogEntry.findMany({
@@ -137,7 +133,7 @@ describe('Audit Log (e2e)', () => {
 
     await apiRequest(app)
       .patch(`/bookings/${bookingId}/approve`)
-      .set('Authorization', `Bearer ${roomManagerToken}`)
+      .set('Authorization', `Bearer ${facilityManagerToken}`)
       .expect(200);
 
     const entries = await prisma.auditLogEntry.findMany({
@@ -247,13 +243,13 @@ describe('Audit Log (e2e)', () => {
 
     await apiRequest(app)
       .patch(`/repairs/${ticketId}`)
-      .set('Authorization', `Bearer ${maintenanceToken}`)
+      .set('Authorization', `Bearer ${facilityManagerToken}`)
       .send({ adminReply: '純回覆，不改狀態' })
       .expect(200);
 
     await apiRequest(app)
       .patch(`/repairs/${ticketId}`)
-      .set('Authorization', `Bearer ${maintenanceToken}`)
+      .set('Authorization', `Bearer ${facilityManagerToken}`)
       .send({ status: 'IN_PROGRESS' })
       .expect(200);
 
@@ -265,7 +261,7 @@ describe('Audit Log (e2e)', () => {
   });
 
   it('keeps an entry readable, with an actorName snapshot, after the actor User is later deleted', async () => {
-    const actor = await tokenFor('audit-deleted-actor@school.edu.tw', Role.ROOM_MANAGER);
+    const actor = await tokenFor('audit-deleted-actor@school.edu.tw', Role.FACILITY_MANAGER);
     const requester = await tokenFor('audit-deleted-actor-req@school.edu.tw', Role.USER);
     const created = await apiRequest(app)
       .post('/bookings')

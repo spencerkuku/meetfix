@@ -80,7 +80,7 @@ export interface UpdateRepairContentInput {
 }
 
 // Reporter-side content edit — deliberately a distinct endpoint from
-// updateRepairTicket (MAINTENANCE/ADMIN-only status/reply), since the
+// updateRepairTicket (FACILITY_MANAGER/ADMIN-only status/reply), since the
 // permission model and payload shape are both different. Multipart, like
 // createRepairTicket, since a new photo may be attached.
 export async function updateRepairContent(

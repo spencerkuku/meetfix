@@ -7,12 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Role: one of four fixed permission levels a User holds. Never combined.
-// See CONTEXT.md.
+// Role: one of three fixed permission levels a User holds. See CONTEXT.md.
 enum Role {
   USER
-  MAINTENANCE
-  ROOM_MANAGER
+  FACILITY_MANAGER
   ADMIN
 }
 
@@ -135,8 +133,8 @@ model Booking {
   @@index([roomId, startTime, endTime])
 }
 
-// Repair Status: see CONTEXT.md. Set by whichever MAINTENANCE user picks
-// up the ticket — there is no per-ticket assignee field.
+// Repair Status: see CONTEXT.md. Set by whichever FACILITY_MANAGER user
+// picks up the ticket — there is no per-ticket assignee field.
 enum RepairStatus {
   PENDING
   IN_PROGRESS

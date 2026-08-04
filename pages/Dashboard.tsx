@@ -10,8 +10,8 @@ export const Dashboard: React.FC = () => {
   const { bookings, repairs, rooms, currentUser } = useData();
 
   // Role Logic
-  const showRepairStats = currentUser && [UserRole.ADMIN, UserRole.MAINTENANCE].includes(currentUser.role);
-  const showBookingStats = currentUser && [UserRole.ADMIN, UserRole.ROOM_MANAGER].includes(currentUser.role);
+  const showRepairStats = currentUser && [UserRole.ADMIN, UserRole.FACILITY_MANAGER].includes(currentUser.role);
+  const showBookingStats = currentUser && [UserRole.ADMIN, UserRole.FACILITY_MANAGER].includes(currentUser.role);
 
   // --- Data Preparation ---
 

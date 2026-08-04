@@ -16,7 +16,7 @@ export const Login: React.FC = () => {
 
   React.useEffect(() => {
     if (currentUser) {
-      navigate(currentUser.role === UserRole.MAINTENANCE ? '/repairs' : '/bookings');
+      navigate(currentUser.role === UserRole.FACILITY_MANAGER ? '/repairs' : '/bookings');
     }
   }, [currentUser, navigate]);
 

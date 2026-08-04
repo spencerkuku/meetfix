@@ -11,17 +11,15 @@ Any authenticated person in the system — a row in the `User` table. Every Role
 _Avoid_: Account (see Account below, which is a distinct concept), Member
 
 **Role**:
-One of four fixed permission levels assigned to a User: `USER`, `MAINTENANCE`, `ROOM_MANAGER`, `ADMIN`. Roles are exclusive (a User has exactly one) and are never merged/combined, even when the same person happens to hold two jobs at the school.
+One of three fixed permission levels assigned to a User: `USER`, `FACILITY_MANAGER`, `ADMIN`. Roles are exclusive — a User has exactly one.
 _Avoid_: Permission, Group
 
 **USER (role)**:
 The default role. Can create Bookings and submit Repair Tickets for themselves.
 
-**MAINTENANCE (role)**:
-Can view and act on all Repair Tickets from a shared, unassigned queue. Claims a ticket by moving its status forward — there is no explicit "assign to me" action. Can also revert a ticket's status one step backward (e.g. undo an accidental claim or reopen a ticket closed too soon) — see Repair Status.
-
-**ROOM_MANAGER (role)**:
-Approves or rejects Bookings for Rooms that require approval.
+**FACILITY_MANAGER (role)**:
+Handles both facility responsibilities at this school, since they're always held by the same staff member: can view and act on all Repair Tickets from a shared, unassigned queue (claims a ticket by moving its status forward — there is no explicit "assign to me" action; can also revert a ticket's status one step backward, e.g. to undo an accidental claim or reopen a ticket closed too soon — see Repair Status), and approves or rejects Bookings for Rooms that require approval.
+_Avoid_: Maintenance, Room Manager (the two separate roles this one replaces)
 
 **ADMIN (role)**:
 Manages Rooms, Repair Categories, Role assignment, the Auto-Approved Domain list, and Account Approval for Pending Accounts. Holds no special booking/repair authority beyond that.
@@ -53,7 +51,7 @@ _Avoid_: Reservation, Appointment
 One of `CONFIRMED`, `PENDING_APPROVAL`, `REJECTED`, `CANCELLED`. A Booking in `CONFIRMED` or `PENDING_APPROVAL` status holds its time slot exclusively — no other Booking may overlap it in either status. `CANCELLED` is a historical status only — no current action produces it; a Booking releases its slot either by being `REJECTED` at Booking Approval or by Booking Deletion.
 
 **Booking Approval**:
-A ROOM_MANAGER's act of setting a `PENDING_APPROVAL` Booking to `CONFIRMED` or `REJECTED`. Distinct from Account Approval.
+A FACILITY_MANAGER's act of setting a `PENDING_APPROVAL` Booking to `CONFIRMED` or `REJECTED`. Distinct from Account Approval.
 
 **Slot Conflict**:
 The condition where a new Booking's time range overlaps an existing Booking in `CONFIRMED` or `PENDING_APPROVAL` status on the same Room. Always rejected at creation time — never surfaced as a warning to resolve later.
@@ -71,10 +69,10 @@ A report of a facility problem at a free-text location, filed by a User. Not tie
 _Avoid_: Repair Request, Maintenance Ticket
 
 **Repair Status**:
-One of `PENDING`, `IN_PROGRESS`, `COMPLETED`. Set by whichever MAINTENANCE user picks up the ticket — there is no per-ticket assignee field. Normally advances one step forward at a time (`PENDING`→`IN_PROGRESS`→`COMPLETED`, no skipping), but a MAINTENANCE/ADMIN user may also revert it one step backward (`IN_PROGRESS`→`PENDING`, `COMPLETED`→`IN_PROGRESS`) — reverting two steps at once (e.g. `COMPLETED`→`PENDING` directly) is not allowed. Every change, forward or backward, is recorded as an Audit Log Entry and notifies the reporter.
+One of `PENDING`, `IN_PROGRESS`, `COMPLETED`. Set by whichever FACILITY_MANAGER user picks up the ticket — there is no per-ticket assignee field. Normally advances one step forward at a time (`PENDING`→`IN_PROGRESS`→`COMPLETED`, no skipping), but a FACILITY_MANAGER/ADMIN user may also revert it one step backward (`IN_PROGRESS`→`PENDING`, `COMPLETED`→`IN_PROGRESS`) — reverting two steps at once (e.g. `COMPLETED`→`PENDING` directly) is not allowed. Every change, forward or backward, is recorded as an Audit Log Entry.
 
 **Repair Ticket Editing/Deletion**:
-The reporter (or an ADMIN) changing a Repair Ticket's location, category, description, or photo, or removing it entirely (soft delete via a `deletedAt` timestamp, mirroring Booking Deletion). Only available while the ticket is still `PENDING` — once a MAINTENANCE user has claimed it (`IN_PROGRESS`) or finished it (`COMPLETED`), neither editing nor deleting is possible.
+The reporter (or an ADMIN) changing a Repair Ticket's location, category, description, or photo, or removing it entirely (soft delete via a `deletedAt` timestamp, mirroring Booking Deletion). Only available while the ticket is still `PENDING` — once a FACILITY_MANAGER user has claimed it (`IN_PROGRESS`) or finished it (`COMPLETED`), neither editing nor deleting is possible.
 
 **Repair Category**:
 An Admin-managed classification for Repair Tickets (e.g. "硬體設備", "冷氣空調"). Categories are freely added/removed by Admins and are not fixed at the code level.

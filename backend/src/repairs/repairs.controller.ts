@@ -63,7 +63,7 @@ export class RepairsController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.MAINTENANCE, Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   update(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -73,7 +73,7 @@ export class RepairsController {
   }
 
   // Reporter-side content edit — deliberately a distinct route from the
-  // MAINTENANCE/ADMIN-only PATCH :id above, since the permission model
+  // FACILITY_MANAGER/ADMIN-only PATCH :id above, since the permission model
   // (owner-or-admin, not role-gated) and payload shape are both different.
   @Patch(':id/content')
   @UseInterceptors(FileInterceptor('photo', repairPhotoUploadOptions))
