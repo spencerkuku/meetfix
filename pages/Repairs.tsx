@@ -353,8 +353,8 @@ export const Repairs: React.FC = () => {
       {/* Ticket Detail Panel — photo lives only here, opened via the 詳情 button */}
       {viewingTicket && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-4 pt-12 sm:pt-20 overflow-y-auto" onClick={() => setViewingTicket(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start sticky top-0 z-10">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-fade-in flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusColor(viewingTicket.status)}`}>
@@ -371,7 +371,7 @@ export const Repairs: React.FC = () => {
               <button onClick={() => setViewingTicket(null)} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto min-h-0">
               {viewingTicket.imageUrl && (
                 <button
                   type="button"
@@ -438,12 +438,12 @@ export const Repairs: React.FC = () => {
       {/* New Ticket Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-y-auto max-h-[90vh] animate-fade-in">
-            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center sticky top-0 z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-fade-in flex flex-col">
+            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-lg text-slate-800">{editingTicketId ? '編輯報修單' : '通報設施問題'}</h3>
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto min-h-0">
               
               {/* Row 1: Location & Category */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
