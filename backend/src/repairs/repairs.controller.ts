@@ -62,8 +62,8 @@ export class RepairsController {
         location: body.location ?? '',
         category: body.category ?? '',
         description: body.description ?? '',
-        userClass: body.userClass,
-        userPhone: body.userPhone,
+        userClass: body.userClass ?? '',
+        userPhone: body.userPhone ?? '',
       },
       filename ? repairPhotoUrl(filename) : undefined,
     );

@@ -238,6 +238,8 @@ describe('Audit Log (e2e)', () => {
       .field('location', '稽核測試地點')
       .field('category', '硬體設備')
       .field('description', '測試用')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '0912-345-678')
       .expect(201);
     const ticketId = (ticket.body as { id: string }).id;
 

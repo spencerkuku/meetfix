@@ -20,6 +20,8 @@ import { GOOGLE_OAUTH_SCOPE, GoogleProfile } from './google-profile.interface';
 import { RegisterWithPasswordDto } from './register-with-password.dto';
 import { LoginWithPasswordDto } from './login-with-password.dto';
 import { ChangePasswordDto } from './change-password.dto';
+import { UpdateProfileDto } from './update-profile.dto';
+import { assertReporterInfoComplete } from '../common/assert-reporter-info-complete';
 
 const LOGIN_CODE_TTL_MS = 60_000;
 const PASSWORD_HASH_ROUNDS = 10;
@@ -389,6 +391,18 @@ export class AuthService {
     await this.prisma.account.update({
       where: { userId },
       data: { passwordHash },
+    });
+  }
+
+  // Self-service reporter-info update (see CONTEXT.md's Repair Ticket
+  // userClass/userPhone) — both required, mirroring the same rule enforced
+  // on Repair Ticket submission (RepairsService.create), so a User can
+  // never end up with one filled in and the other blank.
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<User> {
+    assertReporterInfoComplete(dto.class, dto.phone);
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { userClass: dto.class, userPhone: dto.phone },
     });
   }
 

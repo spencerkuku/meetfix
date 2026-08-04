@@ -18,6 +18,7 @@ import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import { UpdateRepairTicketContentDto } from './update-repair-ticket-content.dto';
 import { withUserName } from '../common/with-user-name';
 import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
+import { assertReporterInfoComplete } from '../common/assert-reporter-info-complete';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 // Repair Status advances one step at a time — see CONTEXT.md. A ticket's
@@ -81,6 +82,7 @@ export class RepairsService {
         'location, category and description are required',
       );
     }
+    assertReporterInfoComplete(dto.userClass, dto.userPhone);
 
     const category = await this.prisma.repairCategory.findUnique({
       where: { name: dto.category },
@@ -89,10 +91,19 @@ export class RepairsService {
       throw new BadRequestException('Unknown Repair Category');
     }
 
-    const created = await this.prisma.repairTicket.create({
-      data: { ...dto, userId, imageUrl },
-      include: { user: { select: { name: true } } },
-    });
+    // Reporter info also lands on the User row itself (see User.userClass/
+    // userPhone), so it pre-fills the next Repair Ticket — same transaction
+    // as ticket creation, so the two never disagree.
+    const [created] = await this.prisma.$transaction([
+      this.prisma.repairTicket.create({
+        data: { ...dto, userId, imageUrl },
+        include: { user: { select: { name: true } } },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { userClass: dto.userClass, userPhone: dto.userPhone },
+      }),
+    ]);
     return withUserName(created);
   }
 

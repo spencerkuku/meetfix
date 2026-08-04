@@ -12,6 +12,6 @@ export interface RepairTicketInput {
   location: string;
   category: string;
   description: string;
-  userClass?: string;
-  userPhone?: string;
+  userClass: string;
+  userPhone: string;
 }

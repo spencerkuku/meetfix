@@ -42,6 +42,13 @@ model User {
   // a synthesized placeholder. See issue #18.
   avatarUrl String?
   createdAt DateTime @default(now())
+  // Reporter info (see RepairTicket.userClass/userPhone) saved from this
+  // User's most recent Repair Ticket submission, so it can pre-fill the
+  // next one. Also directly editable from Account Settings. Null until the
+  // User's first Repair Ticket submission or profile edit — no backfill
+  // from pre-existing RepairTicket rows.
+  userClass String?
+  userPhone String?
 
   account         Account?
   bookings        Booking[]

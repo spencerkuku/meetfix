@@ -22,6 +22,7 @@ import type { ExchangeLoginCodeDto } from './exchange-login-code.dto';
 import type { RegisterWithPasswordDto } from './register-with-password.dto';
 import type { LoginWithPasswordDto } from './login-with-password.dto';
 import type { ChangePasswordDto } from './change-password.dto';
+import type { UpdateProfileDto } from './update-profile.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -135,8 +136,24 @@ export class AuthController {
       name: user.name,
       role: user.role,
       avatarUrl: user.avatarUrl,
+      class: user.userClass,
+      phone: user.userPhone,
       googleLinked,
       hasPassword,
     };
+  }
+
+  // Self-service reporter-info edit, surfaced from Account Settings — see
+  // AuthService.updateProfile for the required-field rule this shares with
+  // Repair Ticket submission.
+  @Patch('me')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async updateMe(
+    @CurrentUser() user: User,
+    @Body() body: UpdateProfileDto,
+  ) {
+    const updated = await this.authService.updateProfile(user.id, body);
+    return { class: updated.userClass, phone: updated.userPhone };
   }
 }

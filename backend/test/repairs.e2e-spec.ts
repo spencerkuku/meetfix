@@ -112,6 +112,8 @@ describe('Repairs (e2e)', () => {
       .field('location', 'A101 會議室')
       .field('category', '硬體設備')
       .field('description', '投影機燈泡閃爍')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '0912-345-678')
       .expect(201);
 
     const body = res.body as RepairTicketResponse;
@@ -238,6 +240,75 @@ describe('Repairs (e2e)', () => {
       .expect(400);
   });
 
+  it('rejects submission with a blank userClass', () => {
+    return apiRequest(app)
+      .post('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .field('location', 'A101')
+      .field('category', '硬體設備')
+      .field('description', 'test')
+      .field('userClass', '')
+      .field('userPhone', '0912-345-678')
+      .expect(400);
+  });
+
+  it('rejects submission with a blank userPhone', () => {
+    return apiRequest(app)
+      .post('/repairs')
+      .set('Authorization', `Bearer ${userToken}`)
+      .field('location', 'A101')
+      .field('category', '硬體設備')
+      .field('description', 'test')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '')
+      .expect(400);
+  });
+
+  it('writes the submitted userClass/userPhone back onto the reporting User, and a later submission pre-fills from it', async () => {
+    const writebackToken = await tokenFor('writeback@school.edu.tw', Role.USER);
+    const reporter = await prisma.user.findUniqueOrThrow({
+      where: { email: 'writeback@school.edu.tw' },
+    });
+    expect(reporter.userClass).toBeNull();
+    expect(reporter.userPhone).toBeNull();
+
+    await apiRequest(app)
+      .post('/repairs')
+      .set('Authorization', `Bearer ${writebackToken}`)
+      .field('location', 'A101')
+      .field('category', '硬體設備')
+      .field('description', 'first submission')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '0912-345-678')
+      .expect(201);
+
+    const meRes = await apiRequest(app)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${writebackToken}`)
+      .expect(200);
+    expect(meRes.body).toMatchObject({
+      class: '資訊三甲',
+      phone: '0912-345-678',
+    });
+
+    // A second submission with a different value overwrites the profile.
+    await apiRequest(app)
+      .post('/repairs')
+      .set('Authorization', `Bearer ${writebackToken}`)
+      .field('location', 'B202')
+      .field('category', '硬體設備')
+      .field('description', 'second submission')
+      .field('userClass', '資訊三乙')
+      .field('userPhone', '0987-654-321')
+      .expect(201);
+
+    const updatedUser = await prisma.user.findUniqueOrThrow({
+      where: { email: 'writeback@school.edu.tw' },
+    });
+    expect(updatedUser.userClass).toBe('資訊三乙');
+    expect(updatedUser.userPhone).toBe('0987-654-321');
+  });
+
   it('rejects submission with a category that is not in the Admin-managed list', () => {
     return apiRequest(app)
       .post('/repairs')
@@ -256,6 +327,8 @@ describe('Repairs (e2e)', () => {
       .field('location', '手動輸入的地點')
       .field('category', '硬體設備')
       .field('description', '電視螢幕無法開機')
+      .field('userClass', '資訊三甲')
+      .field('userPhone', '0912-345-678')
       .expect(201);
 
     const body = res.body as RepairTicketResponse;
@@ -271,6 +344,8 @@ describe('Repairs (e2e)', () => {
         .field('location', 'C303 教室')
         .field('category', '硬體設備')
         .field('description', '燈管不亮')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678')
         .expect(201);
       return (res.body as RepairTicketResponse).id;
     }
@@ -421,6 +496,8 @@ describe('Repairs (e2e)', () => {
         .field('location', 'D404 教室')
         .field('category', '硬體設備')
         .field('description', '插座故障')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678')
         .expect(201);
       return (res.body as RepairTicketResponse).id;
     }
@@ -449,6 +526,8 @@ describe('Repairs (e2e)', () => {
         .field('location', '有照片的地點')
         .field('category', '硬體設備')
         .field('description', '原始照片')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678')
         .attach('photo', PNG_BYTES, 'original.png')
         .expect(201);
       const id = (created.body as RepairTicketResponse).id;
@@ -473,6 +552,8 @@ describe('Repairs (e2e)', () => {
         .field('location', '要移除照片的地點')
         .field('category', '硬體設備')
         .field('description', '待移除照片')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678')
         .attach('photo', PNG_BYTES, 'to-remove.png')
         .expect(201);
       const id = (created.body as RepairTicketResponse).id;
@@ -740,7 +821,9 @@ describe('Repair Ticket rate limiting (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .field('location', `Throttle burst ${i}`)
         .field('category', 'Throttle Test Category')
-        .field('description', 'x');
+        .field('description', 'x')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678');
       if (res.status === 429) {
         sawThrottled = true;
         break;

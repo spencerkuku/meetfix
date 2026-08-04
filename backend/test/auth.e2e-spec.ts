@@ -209,6 +209,69 @@ describe('Auth (e2e)', () => {
     });
   });
 
+  it('GET /auth/me returns null class/phone before any reporter info has ever been saved', async () => {
+    const { accessToken } = await issueSessionToken();
+
+    const res = await apiRequest(app)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(res.body).toMatchObject({ class: null, phone: null });
+  });
+
+  describe('PATCH /auth/me', () => {
+    it('updates class/phone, and GET /auth/me reflects it afterwards', async () => {
+      const { accessToken } = await issueSessionToken();
+
+      const patchRes = await apiRequest(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ class: '資訊三甲', phone: '0912-345-678' })
+        .expect(200);
+      expect(patchRes.body).toMatchObject({
+        class: '資訊三甲',
+        phone: '0912-345-678',
+      });
+
+      const meRes = await apiRequest(app)
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(meRes.body).toMatchObject({
+        class: '資訊三甲',
+        phone: '0912-345-678',
+      });
+    });
+
+    it('rejects a blank class', async () => {
+      const { accessToken } = await issueSessionToken();
+
+      await apiRequest(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ class: '', phone: '0912-345-678' })
+        .expect(400);
+    });
+
+    it('rejects a blank phone', async () => {
+      const { accessToken } = await issueSessionToken();
+
+      await apiRequest(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ class: '資訊三甲', phone: '' })
+        .expect(400);
+    });
+
+    it('rejects an unauthenticated request', () => {
+      return apiRequest(app)
+        .patch('/auth/me')
+        .send({ class: '資訊三甲', phone: '0912-345-678' })
+        .expect(401);
+    });
+  });
+
   it('rejects a session token immediately once its Account is suspended, without requiring a new login', async () => {
     const { userId, accessToken } = await issueSessionToken();
     await apiRequest(app)
