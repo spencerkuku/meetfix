@@ -202,6 +202,7 @@ export const RepairManagement: React.FC = () => {
   );
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -353,6 +354,7 @@ export const RepairManagement: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
 
       {/* Ticket Detail Drawer — photo, full description, reporter info,
           status change, and reply all live here as one surface. */}
@@ -526,6 +528,6 @@ export const RepairManagement: React.FC = () => {
           />
         </div>
       )}
-    </div>
+    </>
   );
 };

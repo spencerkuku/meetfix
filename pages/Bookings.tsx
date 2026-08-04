@@ -114,6 +114,7 @@ export const Bookings: React.FC = () => {
   const viewLabels = { 'MONTH': '月', 'WEEK': '週', 'DAY': '日' };
 
   return (
+    <>
     <div className="space-y-6 relative">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-800">會議室預約狀況</h1>
@@ -311,6 +312,7 @@ export const Bookings: React.FC = () => {
             )}
         </div>
       )}
+    </div>
 
       {formTarget && (
         <BookingFormModal
@@ -323,6 +325,6 @@ export const Bookings: React.FC = () => {
           onClose={() => setFormTarget(null)}
         />
       )}
-    </div>
+    </>
   );
 };

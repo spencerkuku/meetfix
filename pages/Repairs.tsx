@@ -192,6 +192,7 @@ export const Repairs: React.FC = () => {
   const canReport = currentUser && currentUser.role !== UserRole.GUEST;
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -361,6 +362,7 @@ export const Repairs: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
 
       {/* Ticket Detail Panel — photo lives only here, opened via the 詳情 button */}
       {viewingTicket && (
@@ -553,6 +555,6 @@ export const Repairs: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

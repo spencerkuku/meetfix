@@ -93,6 +93,7 @@ export const RoomManagement: React.FC = () => {
   };
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
          <h1 className="text-2xl font-bold text-slate-800">會議室管理</h1>
@@ -168,17 +169,18 @@ export const RoomManagement: React.FC = () => {
            <span className="font-medium">新增會議室</span>
         </div>
       </div>
+    </div>
 
       {/* Add/Edit Room Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
-            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden animate-fade-in flex flex-col">
+            <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-lg text-slate-800">{editingRoomId ? '編輯會議室' : '新增會議室'}</h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
-            
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto min-h-0">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">會議室名稱 *</label>
                 <input
@@ -273,6 +275,6 @@ export const RoomManagement: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
