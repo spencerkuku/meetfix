@@ -29,7 +29,7 @@ import { Avatar } from './Avatar';
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, logout, updateUser } = useData();
+  const { currentUser, logout } = useData();
   const location = useLocation();
   const navigate = useNavigate();
   const { error: showError, success: showSuccess } = useToast();
@@ -46,11 +46,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
-
-  // Profile Form State
-  const [profileName, setProfileName] = useState('');
-  const [profileClass, setProfileClass] = useState('');
-  const [profilePhone, setProfilePhone] = useState('');
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -72,9 +67,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const handleOpenProfile = () => {
     if (!currentUser) return;
-    setProfileName(currentUser.name);
-    setProfileClass(currentUser.class || '');
-    setProfilePhone(currentUser.phone || '');
     setCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
@@ -113,17 +105,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       showError(err instanceof Error ? err.message : '無法啟動 Google 連結，請稍後再試');
       setLinkingGoogle(false);
     }
-  };
-
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser) return;
-    updateUser(currentUser.id, {
-      name: profileName,
-      class: profileClass,
-      phone: profilePhone
-    });
-    setShowProfileModal(false);
   };
 
   // Definition of Navigation Groups
@@ -286,7 +267,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div
                 className={`flex items-center cursor-pointer hover:bg-white rounded-lg transition-colors group relative border border-transparent hover:border-slate-200 hover:shadow-sm ${collapsed ? 'justify-center p-2' : 'gap-3 px-2 p-2'}`}
                 onClick={handleOpenProfile}
-                title="點擊編輯個人資料"
+                title="點擊開啟帳號設定"
               >
                 <div className="relative">
                    <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={24} className="w-10 h-10 rounded-full bg-slate-200 text-slate-500" />
@@ -361,13 +342,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden animate-fade-in flex flex-col">
             <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-lg text-slate-800">編輯個人資料</h3>
+              <h3 className="font-bold text-lg text-slate-800">帳號設定</h3>
               <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-600"><X/></button>
             </div>
-            <form onSubmit={handleSaveProfile} className="flex flex-col min-h-0 flex-1">
+            <div className="flex flex-col min-h-0 flex-1">
               <div className="p-6 space-y-4 overflow-y-auto min-h-0">
-                <div className="flex justify-center mb-6">
+                <div className="flex flex-col items-center gap-2 mb-2">
                   <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={48} className="w-24 h-24 rounded-full bg-slate-100 ring-4 ring-slate-50 text-slate-400" />
+                  <p className="font-semibold text-slate-800">{currentUser.name}</p>
+                  <p className="text-xs text-slate-500">{currentUser.email}</p>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
@@ -435,46 +418,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     </Button>
                   </div>
                 )}
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">姓名</label>
-                  <input
-                    required
-                    type="text"
-                    value={profileName}
-                    onChange={e => setProfileName(e.target.value)}
-                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">班級 / 部門</label>
-                  <input
-                    type="text"
-                    value={profileClass}
-                    onChange={e => setProfileClass(e.target.value)}
-                    placeholder="例如：資訊三甲"
-                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">聯絡電話</label>
-                  <input
-                    type="tel"
-                    value={profilePhone}
-                    onChange={e => setProfilePhone(e.target.value)}
-                    placeholder="09xx-xxx-xxx"
-                    className="w-full border rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
               </div>
 
               <div className="px-6 py-4 flex justify-end gap-3 border-t shrink-0">
-                <Button type="button" variant="ghost" onClick={() => setShowProfileModal(false)}>取消</Button>
-                <Button type="submit">儲存變更</Button>
+                <Button type="button" variant="ghost" onClick={() => setShowProfileModal(false)}>關閉</Button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

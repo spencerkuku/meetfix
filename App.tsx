@@ -22,19 +22,10 @@ import { fetchRepairs, createRepairTicket, updateRepairTicket, updateRepairConte
 import { fetchUsers, updateUserRole as updateUserRoleApi, updateUserStatus as updateUserStatusApi, deleteUser as deleteUserApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
 
-// --- Mock Data ---
-const MOCK_USERS: User[] = [
-  { id: 'u1', name: '陳小美', email: 'alice@corp.com', role: UserRole.USER, avatarUrl: null, class: '資訊三甲', phone: '0912-345-678' },
-  { id: 'u2', name: '張維修', email: 'bob@corp.com', role: UserRole.MAINTENANCE, avatarUrl: null, phone: '0922-333-444' },
-  { id: 'u3', name: '林經理', email: 'carol@corp.com', role: UserRole.ROOM_MANAGER, avatarUrl: null },
-  { id: 'u4', name: '王大明 (Admin)', email: 'dave@corp.com', role: UserRole.ADMIN, avatarUrl: null },
-];
-
 // --- Context ---
 
 interface DataContextType {
   currentUser: User | null;
-  mockUsers: User[];
   rooms: Room[];
   bookings: Booking[];
   repairs: RepairTicket[];
@@ -55,7 +46,6 @@ interface DataContextType {
   updateRepair: (id: string, updates: UpdateRepairTicketInput) => Promise<void>;
   editRepairContent: (id: string, input: UpdateRepairContentInput, photo?: File) => Promise<void>;
   deleteRepair: (id: string) => Promise<void>;
-  updateUser: (userId: string, data: Partial<User>) => void;
   // Admin-only: real User/Account administration (ticket #4). `users` and
   // `pendingAccounts`/`autoApprovedDomains` are only fetched for an ADMIN
   // currentUser — see the effect below.
@@ -88,7 +78,6 @@ export const useData = () => {
 const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [mockUsers, setMockUsers] = useState<User[]>(MOCK_USERS);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [repairs, setRepairs] = useState<RepairTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -258,13 +247,6 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setAutoApprovedDomains(prev => prev.filter(d => d.id !== id));
   };
 
-  const updateUser = (userId: string, data: Partial<User>) => {
-    setMockUsers(prev => prev.map(u => u.id === userId ? { ...u, ...data } : u));
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(prev => prev ? { ...prev, ...data } : null);
-    }
-  };
-
   const addRepairCategory = async (name: string) => {
     const category = await createRepairCategory(name);
     setRepairCategories(prev => [...prev, category]);
@@ -292,10 +274,10 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
   return (
     <DataContext.Provider value={{
-      currentUser, mockUsers, rooms, bookings, repairs, repairCategories, authLoading,
+      currentUser, rooms, bookings, repairs, repairCategories, authLoading,
       loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
       addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking,
-      addRepair, updateRepair, editRepairContent, deleteRepair, updateUser,
+      addRepair, updateRepair, editRepairContent, deleteRepair,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
       users, updateUserRole, updateUserStatus, deleteUser, pendingAccounts, approveAccount,
       autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain, auditLog

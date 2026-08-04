@@ -32,15 +32,32 @@ export const Dashboard: React.FC = () => {
     ];
   }, [repairs]);
 
-  // Mock Weekly Trend Data (since we don't have real history beyond limits)
+  // Real last-7-days trend, derived from the already-loaded bookings/repairs.
   const weeklyTrendData = useMemo(() => {
-      const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
-      return days.map((day, i) => ({
-          day,
-          bookings: Math.floor(Math.random() * 10) + 2, // Mock data
-          repairs: Math.floor(Math.random() * 3)
-      }));
-  }, []);
+      const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+      const days = Array.from({ length: 7 }, (_, i) => {
+          const date = new Date();
+          date.setHours(0, 0, 0, 0);
+          date.setDate(date.getDate() - (6 - i));
+          return date;
+      });
+
+      return days.map(date => {
+          const nextDate = new Date(date);
+          nextDate.setDate(date.getDate() + 1);
+          return {
+              day: dayLabels[date.getDay()],
+              bookings: bookings.filter(b => {
+                  const t = new Date(b.startTime);
+                  return t >= date && t < nextDate;
+              }).length,
+              repairs: repairs.filter(r => {
+                  const t = new Date(r.createdAt);
+                  return t >= date && t < nextDate;
+              }).length,
+          };
+      });
+  }, [bookings, repairs]);
 
   const handleExport = () => {
     const data = {
@@ -185,9 +202,9 @@ export const Dashboard: React.FC = () => {
           </div>
         )}
 
-         {/* Weekly Trend Chart (Mock) - Visible to Admins/Managers */}
+         {/* Weekly Trend Chart - Visible to Admins/Managers */}
          <div className="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="font-bold text-lg text-slate-800 mb-6">最近七天活動趨勢 (模擬)</h3>
+            <h3 className="font-bold text-lg text-slate-800 mb-6">最近七天活動趨勢</h3>
             <div className="h-[300px]">
                <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={weeklyTrendData}>
