@@ -267,10 +267,11 @@ export class AdminService {
     }
   }
 
-  async updateUserRole(actorId: string, userId: string, dto: UpdateRoleDto) {
-    if (!dto.role) {
-      throw new BadRequestException('role is required');
-    }
+  // Shared by updateUserRole/updateUserStatus/deleteUser — all three start
+  // by fetching the target User and 404ing if it doesn't exist. Always
+  // includes `account`, since two of the three callers need it and the
+  // third (deleteUser) simply ignores the extra field.
+  private async findUserOrThrow(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { account: true },
@@ -278,6 +279,14 @@ export class AdminService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    return user;
+  }
+
+  async updateUserRole(actorId: string, userId: string, dto: UpdateRoleDto) {
+    if (!dto.role) {
+      throw new BadRequestException('role is required');
+    }
+    const user = await this.findUserOrThrow(userId);
     if (user.account?.status !== AccountStatus.ACTIVE) {
       throw new BadRequestException(
         'This User does not have an active Account — use Account Approval instead',
@@ -318,13 +327,7 @@ export class AdminService {
     if (actorId === userId) {
       throw new BadRequestException('Cannot change your own Account Status');
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { account: true },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    const user = await this.findUserOrThrow(userId);
     const previousStatus = user.account?.status;
     if (
       previousStatus !== AccountStatus.ACTIVE &&
@@ -374,12 +377,7 @@ export class AdminService {
     if (actorId === userId) {
       throw new BadRequestException('Cannot delete your own Account');
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    const user = await this.findUserOrThrow(userId);
     const isDeletingAdmin = user.role === Role.ADMIN;
 
     await this.runAdminGuardedTransaction(
