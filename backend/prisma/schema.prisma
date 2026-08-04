@@ -72,8 +72,7 @@ model Account {
   status   AccountStatus   @default(ACTIVE)
 
   // GOOGLE provider fields
-  googleSub          String? @unique
-  googleRefreshToken String?
+  googleSub String? @unique
 
   // PASSWORD provider fields
   passwordHash String?
@@ -108,27 +107,22 @@ enum BookingStatus {
 
 // Booking: a claim on a Room for a specific time range. See CONTEXT.md.
 model Booking {
-  id            String        @id @default(cuid())
-  roomId        String
-  room          Room          @relation(fields: [roomId], references: [id])
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
-  title         String
-  description   String?
-  startTime     DateTime
-  endTime       DateTime
-  status        BookingStatus
-  createdAt     DateTime      @default(now())
-  // The synced Google Calendar event id for this Booking, set once it
-  // becomes CONFIRMED for a Google-authenticated User. Null for
-  // PENDING_APPROVAL Bookings, password-Account Users, or if the sync
-  // itself failed. See CONTEXT.md, issue #11.
-  googleEventId String?
+  id          String        @id @default(cuid())
+  roomId      String
+  room        Room          @relation(fields: [roomId], references: [id])
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  status      BookingStatus
+  createdAt   DateTime      @default(now())
   // Soft delete: set by the owner or an ADMIN removing a future Booking
   // from view, regardless of its `status`. Distinct from `status` — a
   // deleted Booking keeps whatever status it had (e.g. CANCELLED) and is
   // simply excluded from all reads. See issue #19.
-  deletedAt     DateTime?
+  deletedAt   DateTime?
 
   @@index([roomId, startTime, endTime])
 }

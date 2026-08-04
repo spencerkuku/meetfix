@@ -27,24 +27,16 @@ flowchart LR
 
 ## 功能
 
-### Email 通知
-
-API 會在四種領域事件發生時寄送交易型通知信：借用申請送出待審核（通知 Room Manager）、借用審核結果（通知申請人）、非申請人本人刪除借用（通知申請人）、報修單狀態變更或有新回覆（通知回報的 User）。透過 `SMTP_*` 環境變數設定 SMTP；若未設定 `SMTP_HOST`，寄信動作會被略過（以 debug 等級記錄）——其餘功能仍正常運作。
-
-### Google 日曆同步
-
-當一筆 Booking 狀態變為 `CONFIRMED` 時，會在申請人的 Google 日曆上建立對應事件，使用的是 Google 登入時取得的 Calendar OAuth 授權範圍與 refresh token（`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`；refresh token 本身會透過 `ENCRYPTION_KEY` 加密儲存）。當該 Booking 之後變為 `REJECTED`，或該筆有效（`CONFIRMED`/`PENDING_APPROVAL`）的 Booking 被刪除，對應的日曆事件會被移除。此功能僅適用於以 Google 帳號登入的 User——使用密碼帳號的 User 沒有連結的日曆，因此不會為其嘗試任何日曆操作。同步失敗（授權被撤銷、API 錯誤等）僅會被記錄下來，不會影響原本的 Booking 操作結果。
-
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: 送出借用申請\n(通知 Room Manager)
-    PENDING --> CONFIRMED: 核准\n(通知申請人 / 建立日曆事件)
-    PENDING --> REJECTED: 拒絕\n(通知申請人)
+    [*] --> PENDING: 送出借用申請
+    PENDING --> CONFIRMED: 核准
+    PENDING --> REJECTED: 拒絕
     CONFIRMED --> [*]
     REJECTED --> [*]
 ```
 
-刪除借用（Booking Deletion）是獨立於上述狀態機的動作：擁有者或 ADMIN 可將任一尚未開始的未來 Booking 從所有畫面中移除（軟刪除），無論其目前狀態為何；非本人刪除時會通知申請人並移除對應日曆事件。`CANCELLED` 狀態僅存在於歷史資料，目前沒有任何動作會產生新的 `CANCELLED` 紀錄。
+刪除借用（Booking Deletion）是獨立於上述狀態機的動作：擁有者或 ADMIN 可將任一尚未開始的未來 Booking 從所有畫面中移除（軟刪除），無論其目前狀態為何。`CANCELLED` 狀態僅存在於歷史資料，目前沒有任何動作會產生新的 `CANCELLED` 紀錄。
 
 ## 部署
 
@@ -87,9 +79,8 @@ stateDiagram-v2
 | 變數 | 用途 |
 | --- | --- |
 | `JWT_SECRET` | 用來簽署 session JWT——以 `openssl rand -hex 32` 產生。 |
-| `ENCRYPTION_KEY` | 32 位元組的 hex 金鑰，用於加密儲存中的 Google refresh token——以 `openssl rand -hex 32` 產生。 |
 
-**Google 登入與日曆同步**
+**Google 登入**
 
 | 變數 | 用途 |
 | --- | --- |
@@ -97,12 +88,6 @@ stateDiagram-v2
 | `GOOGLE_CALLBACK_URL` | 必須與 Google Cloud Console 上註冊的 redirect URI 完全一致，例如 `https://meetfix.your-school.edu.tw/auth/google/callback`。 |
 | `SCHOOL_GOOGLE_DOMAIN` | 允許登入的 Google Workspace 網域——其餘一律拒絕。 |
 | `FRONTEND_URL` | 前端的公開網址；Google 登入驗證後會導回此處。 |
-
-**通知信**
-
-| 變數 | 用途 |
-| --- | --- |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 用於寄送交易型通知信件（借用審核、報修狀態更新等，詳見上方「功能」章節）的 SMTP 伺服器設定。全部選填——`SMTP_HOST` 留空即可完全停用寄信功能。 |
 
 **備份**
 

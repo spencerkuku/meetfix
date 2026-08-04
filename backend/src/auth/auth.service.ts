@@ -17,7 +17,6 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { GOOGLE_OAUTH_SCOPE, GoogleProfile } from './google-profile.interface';
-import { TokenEncryptionService } from './token-encryption.service';
 import { RegisterWithPasswordDto } from './register-with-password.dto';
 import { LoginWithPasswordDto } from './login-with-password.dto';
 import { ChangePasswordDto } from './change-password.dto';
@@ -73,7 +72,6 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    private readonly tokenEncryption: TokenEncryptionService,
   ) {}
 
   async loginWithGoogle(profile: GoogleProfile): Promise<{ user: User }> {
@@ -88,10 +86,6 @@ export class AuthService {
       where: { googleSub: profile.googleSub },
     });
 
-    const encryptedRefreshToken = profile.refreshToken
-      ? this.tokenEncryption.encrypt(profile.refreshToken)
-      : undefined;
-
     let user: User;
     if (existingAccount) {
       user = await this.prisma.user.update({
@@ -102,12 +96,6 @@ export class AuthService {
           avatarUrl: profile.avatarUrl ?? null,
         },
       });
-      if (encryptedRefreshToken) {
-        await this.prisma.account.update({
-          where: { id: existingAccount.id },
-          data: { googleRefreshToken: encryptedRefreshToken },
-        });
-      }
     } else {
       try {
         user = await this.prisma.user.create({
@@ -120,7 +108,6 @@ export class AuthService {
               create: {
                 provider: AccountProvider.GOOGLE,
                 googleSub: profile.googleSub,
-                googleRefreshToken: encryptedRefreshToken,
               },
             },
           },
@@ -142,10 +129,11 @@ export class AuthService {
   }
 
   // Google account linking: lets a password-Account User attach a Google
-  // identity to their existing Account (e.g. for Calendar sync), initiated
-  // only from an authenticated profile action — never auto-linked from the
-  // login page, so a mere email match on the Google side can never take
-  // over someone else's password Account.
+  // identity to their existing Account, so they can also log in with
+  // Google afterwards. Initiated only from an authenticated profile
+  // action — never auto-linked from the login page, so a mere email
+  // match on the Google side can never take over someone else's
+  // password Account.
   buildGoogleLinkUrl(userId: string): string {
     const state = this.signGoogleLinkState(userId);
     const params = new URLSearchParams({
@@ -153,8 +141,6 @@ export class AuthService {
       redirect_uri: this.config.get<string>('GOOGLE_CALLBACK_URL') ?? '',
       response_type: 'code',
       scope: GOOGLE_OAUTH_SCOPE,
-      access_type: 'offline',
-      prompt: 'consent',
       hd: this.config.get<string>('SCHOOL_GOOGLE_DOMAIN') ?? '',
       state,
     });
@@ -198,12 +184,7 @@ export class AuthService {
 
     await this.prisma.account.update({
       where: { userId },
-      data: {
-        googleSub: profile.googleSub,
-        ...(profile.refreshToken
-          ? { googleRefreshToken: this.tokenEncryption.encrypt(profile.refreshToken) }
-          : {}),
-      },
+      data: { googleSub: profile.googleSub },
     });
 
     const updatedUser = await this.prisma.user.update({

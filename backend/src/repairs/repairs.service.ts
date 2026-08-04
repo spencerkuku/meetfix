@@ -13,7 +13,6 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { RepairTicketInput } from './repair-ticket-form.dto';
 import { UpdateRepairTicketDto } from './update-repair-ticket.dto';
 import { UpdateRepairTicketContentDto } from './update-repair-ticket-content.dto';
@@ -30,7 +29,7 @@ const NEXT_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
   [RepairStatus.COMPLETED]: undefined,
 };
 
-// A MAINTENANCE/ADMIN user can also walk a ticket back one step — e.g. to
+// A FACILITY_MANAGER/ADMIN user can also walk a ticket back one step — e.g. to
 // undo a wrong "接手處理"/"標記完成" click, or reopen a ticket closed too
 // soon. Only ever one step, mirroring NEXT_STATUS above: COMPLETED can only
 // go back to IN_PROGRESS, never straight to PENDING.
@@ -47,7 +46,6 @@ export class RepairsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly notifications: NotificationsService,
   ) {}
 
   async findAll(
@@ -143,13 +141,12 @@ export class RepairsService {
           }
         : null,
     );
-    await this.notifications.notifyRepairUpdate(updated, updated.user, updates);
     return withUserName(updated);
   }
 
   // Reporter-side content edit — distinct from updateStatus() above (which
-  // stays MAINTENANCE/ADMIN-only, status+adminReply only). Only a PENDING
-  // Repair Ticket can be edited — once MAINTENANCE has picked it up
+  // stays FACILITY_MANAGER/ADMIN-only, status+adminReply only). Only a PENDING
+  // Repair Ticket can be edited — once a FACILITY_MANAGER has picked it up
   // (IN_PROGRESS) or finished it (COMPLETED), the reporter's content is
   // locked, mirroring how a Booking becomes locked once it starts. See
   // issue #25.
@@ -197,7 +194,7 @@ export class RepairsService {
           : {}),
     };
 
-    // Conditional on status, not just id, so a concurrent MAINTENANCE claim
+    // Conditional on status, not just id, so a concurrent FACILITY_MANAGER claim
     // (updateStatus PENDING -> IN_PROGRESS) racing this edit can't both
     // proceed — only the first to commit wins.
     const result = await this.prisma.repairTicket.updateMany({
@@ -213,14 +210,6 @@ export class RepairsService {
       where: { id },
       include: { user: true },
     });
-
-    if (actorId !== updated.userId) {
-      await this.notifications.notifyRepairEdited(
-        updated,
-        updated.user,
-        actorId,
-      );
-    }
     return withUserName(updated);
   }
 
@@ -230,7 +219,6 @@ export class RepairsService {
   async remove(actorId: string, actorRole: Role, id: string): Promise<void> {
     const existing = await this.prisma.repairTicket.findUnique({
       where: { id },
-      include: { user: true },
     });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Repair Ticket not found');
@@ -249,14 +237,6 @@ export class RepairsService {
     if (result.count === 0) {
       throw new ConflictException(
         'Only a PENDING Repair Ticket can be deleted',
-      );
-    }
-
-    if (actorId !== existing.userId) {
-      await this.notifications.notifyRepairDeleted(
-        existing,
-        existing.user,
-        actorId,
       );
     }
   }

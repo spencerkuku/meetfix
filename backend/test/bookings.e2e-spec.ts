@@ -4,8 +4,6 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { NotificationsService } from './../src/notifications/notifications.service';
-import { CalendarService } from './../src/calendar/calendar.service';
 import { Role } from '@prisma/client';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
@@ -18,7 +16,6 @@ interface BookingResponse {
   status: 'CONFIRMED' | 'PENDING_APPROVAL' | 'REJECTED' | 'CANCELLED';
   startTime: string;
   endTime: string;
-  googleEventId: string | null;
 }
 
 describe('Bookings (e2e)', () => {
@@ -28,26 +25,10 @@ describe('Bookings (e2e)', () => {
   let userToken: string;
   let userId: string;
   let otherUserToken: string;
-  let roomManagerToken: string;
+  let facilityManagerToken: string;
   let adminToken: string;
-  let maintenanceToken: string;
   let openRoomId: string;
   let approvalRoomId: string;
-  // The wiring to NotificationsService is exercised for real here (mocked
-  // only at the SMTP-send boundary) so we assert it fires with the right
-  // decision outcome.
-  const notifications = {
-    notifyBookingSubmittedForApproval: jest.fn(),
-    notifyBookingDecision: jest.fn(),
-    notifyBookingDeleted: jest.fn(),
-    notifyBookingEdited: jest.fn(),
-  };
-  // Same rationale as `notifications` above.
-  const calendar = {
-    syncBookingConfirmed: jest.fn().mockResolvedValue(null),
-    removeBookingEvent: jest.fn().mockResolvedValue(undefined),
-    updateBookingEvent: jest.fn().mockResolvedValue(undefined),
-  };
 
   async function tokenFor(
     email: string,
@@ -85,12 +66,7 @@ describe('Bookings (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(NotificationsService)
-      .useValue(notifications)
-      .overrideProvider(CalendarService)
-      .useValue(calendar)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     setApiPrefix(app);
@@ -103,15 +79,11 @@ describe('Bookings (e2e)', () => {
     userId = user.userId;
     const other = await tokenFor('other@school.edu.tw');
     otherUserToken = other.token;
-    roomManagerToken = await tokenForRole(
+    facilityManagerToken = await tokenForRole(
       'manager@school.edu.tw',
-      Role.ROOM_MANAGER,
+      Role.FACILITY_MANAGER,
     );
     adminToken = await tokenForRole('admin@school.edu.tw', Role.ADMIN);
-    maintenanceToken = await tokenForRole(
-      'maintenance@school.edu.tw',
-      Role.MAINTENANCE,
-    );
 
     const openRoom = await prisma.room.create({
       data: {
@@ -136,10 +108,6 @@ describe('Bookings (e2e)', () => {
       },
     });
     approvalRoomId = approvalRoom.id;
-  });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
   });
 
   afterAll(async () => {
@@ -340,7 +308,7 @@ describe('Bookings (e2e)', () => {
         .expect(403);
     });
 
-    it('rejects deleting a future Booking as a ROOM_MANAGER who does not own it', async () => {
+    it('rejects deleting a future Booking as a FACILITY_MANAGER who does not own it', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -351,7 +319,7 @@ describe('Bookings (e2e)', () => {
 
       await apiRequest(app)
         .delete(`/bookings/${createdBody.id}`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(403);
     });
 
@@ -455,9 +423,6 @@ describe('Bookings (e2e)', () => {
         .expect(201);
       const id = (created.body as BookingResponse).id;
       expect((created.body as BookingResponse).status).toBe('PENDING_APPROVAL');
-      // Creating on an approval-required Room already fired this once —
-      // clear it so the assertion below reflects only the edit's behavior.
-      jest.clearAllMocks();
 
       const res = await apiRequest(app)
         .patch(`/bookings/${id}`)
@@ -468,10 +433,9 @@ describe('Bookings (e2e)', () => {
       const body = res.body as BookingResponse;
       expect(body.title).toBe('Updated title');
       expect(body.status).toBe('PENDING_APPROVAL');
-      expect(notifications.notifyBookingSubmittedForApproval).not.toHaveBeenCalled();
     });
 
-    it('editing a CONFIRMED Booking to a Room requiring approval reverts it to PENDING_APPROVAL and notifies Room Manager', async () => {
+    it('editing a CONFIRMED Booking to a Room requiring approval reverts it to PENDING_APPROVAL', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -488,9 +452,6 @@ describe('Bookings (e2e)', () => {
         .expect(200);
 
       expect((res.body as BookingResponse).status).toBe('PENDING_APPROVAL');
-      expect(
-        notifications.notifyBookingSubmittedForApproval,
-      ).toHaveBeenCalledTimes(1);
     });
 
     it('editing a PENDING_APPROVAL Booking to a Room that does not require approval confirms it immediately', async () => {
@@ -606,7 +567,7 @@ describe('Bookings (e2e)', () => {
       const id = (created.body as BookingResponse).id;
       await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
 
       await apiRequest(app)
@@ -652,7 +613,7 @@ describe('Bookings (e2e)', () => {
         .expect(403);
     });
 
-    it('an ADMIN can edit a future Booking that belongs to someone else, notifying the owner', async () => {
+    it('an ADMIN can edit a future Booking that belongs to someone else', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -661,74 +622,13 @@ describe('Bookings (e2e)', () => {
         .expect(201);
       const id = (created.body as BookingResponse).id;
 
-      await apiRequest(app)
+      const res = await apiRequest(app)
         .patch(`/bookings/${id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ title: 'Fixed by admin' })
         .expect(200);
 
-      expect(notifications.notifyBookingEdited).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not notify when the owner edits their own Booking', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Self edit no notify', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .patch(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ title: 'Still mine' })
-        .expect(200);
-
-      expect(notifications.notifyBookingEdited).not.toHaveBeenCalled();
-    });
-
-    it('updates the existing Calendar event in place when a CONFIRMED Booking is edited and stays CONFIRMED', async () => {
-      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-edit-update');
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Calendar update on edit', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-      expect((created.body as BookingResponse).googleEventId).toBe(
-        'evt-edit-update',
-      );
-
-      await apiRequest(app)
-        .patch(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ title: 'Renamed meeting' })
-        .expect(200);
-
-      expect(calendar.updateBookingEvent).toHaveBeenCalledTimes(1);
-      // Only the original create() should have inserted a new event.
-      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
-    });
-
-    it('removes the Calendar event when editing reverts a CONFIRMED Booking to PENDING_APPROVAL', async () => {
-      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-edit-remove');
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Calendar removal on edit', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .patch(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId })
-        .expect(200);
-
-      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
+      expect((res.body as BookingResponse).title).toBe('Fixed by admin');
     });
 
     it('an edit that reschedules racing a concurrent reject never resurrects a REJECTED Booking', async () => {
@@ -752,7 +652,7 @@ describe('Bookings (e2e)', () => {
           .send({ roomId: openRoomId }),
         apiRequest(app)
           .patch(`/bookings/${id}/reject`)
-          .set('Authorization', `Bearer ${roomManagerToken}`),
+          .set('Authorization', `Bearer ${facilityManagerToken}`),
       ]);
 
       // Both writes are guarded on the PENDING_APPROVAL status read before
@@ -872,16 +772,16 @@ describe('Bookings (e2e)', () => {
       return body.id;
     }
 
-    it('ROOM_MANAGER can approve a PENDING_APPROVAL Booking, setting it CONFIRMED', async () => {
+    it('FACILITY_MANAGER can approve a PENDING_APPROVAL Booking, setting it CONFIRMED', async () => {
       const id = await createPending();
       const res = await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
       expect((res.body as BookingResponse).status).toBe('CONFIRMED');
     });
 
-    it('ROOM_MANAGER can reject a PENDING_APPROVAL Booking, releasing its slot', async () => {
+    it('FACILITY_MANAGER can reject a PENDING_APPROVAL Booking, releasing its slot', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -892,7 +792,7 @@ describe('Bookings (e2e)', () => {
 
       const res = await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
       expect((res.body as BookingResponse).status).toBe('REJECTED');
 
@@ -908,7 +808,7 @@ describe('Bookings (e2e)', () => {
         .expect(201);
     });
 
-    it('rejects approval by a User who is not ROOM_MANAGER or ADMIN', async () => {
+    it('rejects approval by a User who is not FACILITY_MANAGER or ADMIN', async () => {
       const id = await createPending();
       await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
@@ -916,19 +816,11 @@ describe('Bookings (e2e)', () => {
         .expect(403);
     });
 
-    it('rejects rejection by a User who is not ROOM_MANAGER or ADMIN', async () => {
+    it('rejects rejection by a User who is not FACILITY_MANAGER or ADMIN', async () => {
       const id = await createPending();
       await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
         .set('Authorization', `Bearer ${userToken}`)
-        .expect(403);
-    });
-
-    it('rejects approval by a MAINTENANCE User', async () => {
-      const id = await createPending();
-      await apiRequest(app)
-        .patch(`/bookings/${id}/approve`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
         .expect(403);
     });
 
@@ -945,13 +837,13 @@ describe('Bookings (e2e)', () => {
       const id = await createPending();
       await apiRequest(app)
         .patch(`/bookings/${id}/approve`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
 
       // Already CONFIRMED — a second decision is rejected, not silently reapplied.
       await apiRequest(app)
         .patch(`/bookings/${id}/reject`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(409);
     });
 
@@ -964,7 +856,7 @@ describe('Bookings (e2e)', () => {
           .set('Authorization', `Bearer ${userToken}`),
         apiRequest(app)
           .patch(`/bookings/${id}/approve`)
-          .set('Authorization', `Bearer ${roomManagerToken}`),
+          .set('Authorization', `Bearer ${facilityManagerToken}`),
       ]);
 
       // remove()'s guard is only on deletedAt (not status), so unlike two
@@ -985,13 +877,13 @@ describe('Bookings (e2e)', () => {
       }
     });
 
-    it('two racing approve calls on the same Booking result in exactly one Calendar sync, never an orphaned duplicate', async () => {
+    it('two racing approve calls on the same Booking result in exactly one success', async () => {
       const id = await createPending();
 
       const [firstRes, secondRes] = await Promise.all([
         apiRequest(app)
           .patch(`/bookings/${id}/approve`)
-          .set('Authorization', `Bearer ${roomManagerToken}`),
+          .set('Authorization', `Bearer ${facilityManagerToken}`),
         apiRequest(app)
           .patch(`/bookings/${id}/approve`)
           .set('Authorization', `Bearer ${adminToken}`),
@@ -999,184 +891,6 @@ describe('Bookings (e2e)', () => {
 
       const statuses = [firstRes.status, secondRes.status].sort();
       expect(statuses).toEqual([200, 409]);
-      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('Notifications wiring (#10)', () => {
-    it('notifies Room Manager(s) when a Booking is submitted for approval', async () => {
-      const slot = nextSlot();
-      await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId, title: 'Notify submit', ...slot })
-        .expect(201);
-
-      expect(
-        notifications.notifyBookingSubmittedForApproval,
-      ).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not notify Room Manager(s) for an auto-confirmed Booking', async () => {
-      const slot = nextSlot();
-      await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'No approval needed', ...slot })
-        .expect(201);
-
-      expect(
-        notifications.notifyBookingSubmittedForApproval,
-      ).not.toHaveBeenCalled();
-    });
-
-    it('notifies the requester of a Booking Approval decision', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId, title: 'Notify decision', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .patch(`/bookings/${id}/approve`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
-        .expect(200);
-
-      expect(notifications.notifyBookingDecision).toHaveBeenCalledTimes(1);
-    });
-
-    it('notifies the requester when someone else deletes their Booking', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Deleted by admin', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .delete(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .expect(204);
-
-      expect(notifications.notifyBookingDeleted).toHaveBeenCalledTimes(1);
-    });
-
-    it('still calls the delete-notification hook when the requester deletes their own Booking (decision logic then suppresses it)', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Self-deleted', ...slot })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .delete(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .expect(204);
-
-      expect(notifications.notifyBookingDeleted).toHaveBeenCalledTimes(1);
-      const [, , , deletedByUserId] = notifications.notifyBookingDeleted.mock
-        .calls[0] as [unknown, unknown, unknown, string];
-      expect(deletedByUserId).toBe(userId);
-    });
-  });
-
-  describe('Calendar sync wiring (#11)', () => {
-    it('syncs an auto-confirmed Booking to Calendar and persists the returned event id', async () => {
-      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-auto-confirm');
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: openRoomId, title: 'Calendar sync on create', ...slot })
-        .expect(201);
-
-      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
-      expect((created.body as BookingResponse).googleEventId).toBe(
-        'evt-auto-confirm',
-      );
-    });
-
-    it('does not attempt a Calendar sync for a PENDING_APPROVAL Booking', async () => {
-      const slot = nextSlot();
-      await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({ roomId: approvalRoomId, title: 'No sync yet', ...slot })
-        .expect(201);
-
-      expect(calendar.syncBookingConfirmed).not.toHaveBeenCalled();
-    });
-
-    it('syncs to Calendar when a Booking is approved, persisting the returned event id', async () => {
-      calendar.syncBookingConfirmed.mockResolvedValueOnce('evt-approved');
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({
-          roomId: approvalRoomId,
-          title: 'Calendar sync on approve',
-          ...slot,
-        })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      const approved = await apiRequest(app)
-        .patch(`/bookings/${id}/approve`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
-        .expect(200);
-
-      expect(calendar.syncBookingConfirmed).toHaveBeenCalledTimes(1);
-      expect((approved.body as BookingResponse).googleEventId).toBe(
-        'evt-approved',
-      );
-    });
-
-    it('removes the Calendar event when an active Booking is deleted', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({
-          roomId: openRoomId,
-          title: 'Calendar removal on delete',
-          ...slot,
-        })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .delete(`/bookings/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .expect(204);
-
-      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls the Calendar removal hook when a Booking is rejected (a no-op, since it was never synced)', async () => {
-      const slot = nextSlot();
-      const created = await apiRequest(app)
-        .post('/bookings')
-        .set('Authorization', `Bearer ${userToken}`)
-        .send({
-          roomId: approvalRoomId,
-          title: 'Calendar removal on reject',
-          ...slot,
-        })
-        .expect(201);
-      const id = (created.body as BookingResponse).id;
-
-      await apiRequest(app)
-        .patch(`/bookings/${id}/reject`)
-        .set('Authorization', `Bearer ${roomManagerToken}`)
-        .expect(200);
-
-      expect(calendar.removeBookingEvent).toHaveBeenCalledTimes(1);
     });
   });
 });

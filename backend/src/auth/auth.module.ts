@@ -6,7 +6,6 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleStrategy } from './google.strategy';
 import { JwtStrategy } from './jwt.strategy';
-import { TokenEncryptionService } from './token-encryption.service';
 
 @Module({
   imports: [
@@ -23,7 +22,7 @@ import { TokenEncryptionService } from './token-encryption.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, GoogleStrategy, JwtStrategy, TokenEncryptionService],
-  exports: [AuthService, TokenEncryptionService],
+  providers: [AuthService, GoogleStrategy, JwtStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}

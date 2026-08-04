@@ -19,22 +19,16 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   }
 
   // passport-oauth2 calls this to build the extra query params on the
-  // redirect to Google. Always ask for a refresh token, and restrict
-  // Google's own login screen to the school's Workspace domain (defense
-  // in depth on top of the server-side hd check in AuthService).
+  // redirect to Google. Restricts Google's own login screen to the
+  // school's Workspace domain (defense in depth on top of the
+  // server-side hd check in AuthService).
   authorizationParams(): Record<string, string> {
     return {
-      access_type: 'offline',
-      prompt: 'consent',
       hd: this.schoolDomain,
     };
   }
 
-  validate(
-    accessToken: string,
-    refreshToken: string,
-    profile: Profile,
-  ): GoogleProfile {
+  validate(accessToken: string, refreshToken: string, profile: Profile): GoogleProfile {
     const email = profile.emails?.[0]?.value;
     if (!email) {
       throw new Error('Google profile did not include an email address');
@@ -44,7 +38,6 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       email,
       name: profile.displayName,
       hostedDomain: (profile._json as { hd?: string }).hd,
-      refreshToken,
       avatarUrl: profile.photos?.[0]?.value,
     };
   }

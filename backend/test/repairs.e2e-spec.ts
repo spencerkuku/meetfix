@@ -5,7 +5,6 @@ import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { NotificationsService } from './../src/notifications/notifications.service';
 import { serveUploads } from './../src/uploads/serve-uploads';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
@@ -44,15 +43,8 @@ describe('Repairs (e2e)', () => {
   let userToken: string;
   let otherUserToken: string;
   let adminToken: string;
-  let maintenanceToken: string;
+  let facilityManagerToken: string;
   const createdUploadPaths: string[] = [];
-  // See bookings.e2e-spec.ts for why NotificationsService is mocked at the
-  // SMTP-send boundary rather than not exercised at all.
-  const notifications = {
-    notifyRepairUpdate: jest.fn(),
-    notifyRepairEdited: jest.fn(),
-    notifyRepairDeleted: jest.fn(),
-  };
 
   async function tokenFor(email: string, role: Role): Promise<string> {
     const { user } = await authService.loginWithGoogle({
@@ -72,10 +64,7 @@ describe('Repairs (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(NotificationsService)
-      .useValue(notifications)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
     setApiPrefix(app);
@@ -87,14 +76,10 @@ describe('Repairs (e2e)', () => {
     userToken = await tokenFor('reporter@school.edu.tw', Role.USER);
     otherUserToken = await tokenFor('bystander@school.edu.tw', Role.USER);
     adminToken = await tokenFor('repairadmin@school.edu.tw', Role.ADMIN);
-    maintenanceToken = await tokenFor(
-      'repairmaint@school.edu.tw',
-      Role.MAINTENANCE,
+    facilityManagerToken = await tokenFor(
+      'repairfacility@school.edu.tw',
+      Role.FACILITY_MANAGER,
     );
-  });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
   });
 
   afterAll(async () => {
@@ -198,15 +183,15 @@ describe('Repairs (e2e)', () => {
     expect(seenByAdmin?.userPhone).toBe('0912-345-678');
     expect(seenByAdmin?.userClass).toBe('資訊三甲');
 
-    const asMaintenance = await apiRequest(app)
+    const asFacilityManager = await apiRequest(app)
       .get('/repairs')
-      .set('Authorization', `Bearer ${maintenanceToken}`)
+      .set('Authorization', `Bearer ${facilityManagerToken}`)
       .expect(200);
-    const seenByMaintenance = (
-      asMaintenance.body as RepairTicketResponse[]
+    const seenByFacilityManager = (
+      asFacilityManager.body as RepairTicketResponse[]
     ).find((t) => t.id === createdBody.id);
-    expect(seenByMaintenance?.userPhone).toBe('0912-345-678');
-    expect(seenByMaintenance?.userClass).toBe('資訊三甲');
+    expect(seenByFacilityManager?.userPhone).toBe('0912-345-678');
+    expect(seenByFacilityManager?.userClass).toBe('資訊三甲');
   });
 
   it('rejects an SVG upload masquerading as a photo (stored XSS vector)', () => {
@@ -285,7 +270,7 @@ describe('Repairs (e2e)', () => {
       return (res.body as RepairTicketResponse).id;
     }
 
-    it('rejects updates from a non-MAINTENANCE, non-ADMIN User', async () => {
+    it('rejects updates from a non-FACILITY_MANAGER, non-ADMIN User', async () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
@@ -294,19 +279,19 @@ describe('Repairs (e2e)', () => {
         .expect(403);
     });
 
-    it('MAINTENANCE can move a ticket PENDING -> IN_PROGRESS -> COMPLETED', async () => {
+    it('FACILITY_MANAGER can move a ticket PENDING -> IN_PROGRESS -> COMPLETED', async () => {
       const id = await createTicket();
 
       const started = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
       expect((started.body as RepairTicketResponse).status).toBe('IN_PROGRESS');
 
       const completed = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
       expect((completed.body as RepairTicketResponse).status).toBe('COMPLETED');
@@ -326,7 +311,7 @@ describe('Repairs (e2e)', () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'COMPLETED' })
         .expect(400);
     });
@@ -335,33 +320,33 @@ describe('Repairs (e2e)', () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
 
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'PENDING' })
         .expect(400);
     });
 
-    it('MAINTENANCE can revert a ticket one status step back (IN_PROGRESS -> PENDING, COMPLETED -> IN_PROGRESS)', async () => {
+    it('FACILITY_MANAGER can revert a ticket one status step back (IN_PROGRESS -> PENDING, COMPLETED -> IN_PROGRESS)', async () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
 
       const revertedToPending = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'PENDING' })
         .expect(200);
       expect((revertedToPending.body as RepairTicketResponse).status).toBe(
@@ -370,18 +355,18 @@ describe('Repairs (e2e)', () => {
 
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
 
       const revertedToInProgress = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
       expect((revertedToInProgress.body as RepairTicketResponse).status).toBe(
@@ -389,11 +374,11 @@ describe('Repairs (e2e)', () => {
       );
     });
 
-    it('MAINTENANCE can attach a reply when updating a ticket', async () => {
+    it('FACILITY_MANAGER can attach a reply when updating a ticket', async () => {
       const id = await createTicket();
       const res = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS', adminReply: '已預約零件，明日到場處理' })
         .expect(200);
       expect(
@@ -404,31 +389,22 @@ describe('Repairs (e2e)', () => {
     it('404s when updating a Repair Ticket that does not exist', () => {
       return apiRequest(app)
         .patch('/repairs/not-a-real-ticket')
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(404);
     });
 
-    it('notifies the reporting User on a status change (#10)', async () => {
+    it('attaches a reply-only update without touching status', async () => {
       const id = await createTicket();
-      await apiRequest(app)
+      const res = await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
-        .send({ status: 'IN_PROGRESS' })
-        .expect(200);
-
-      expect(notifications.notifyRepairUpdate).toHaveBeenCalledTimes(1);
-    });
-
-    it('notifies the reporting User on a reply-only update (#10)', async () => {
-      const id = await createTicket();
-      await apiRequest(app)
-        .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ adminReply: '正在調度零件' })
         .expect(200);
 
-      expect(notifications.notifyRepairUpdate).toHaveBeenCalledTimes(1);
+      const body = res.body as RepairTicketResponse & { adminReply: string };
+      expect(body.adminReply).toBe('正在調度零件');
+      expect(body.status).toBe('PENDING');
     });
   });
 
@@ -520,7 +496,7 @@ describe('Repairs (e2e)', () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
 
@@ -540,26 +516,17 @@ describe('Repairs (e2e)', () => {
         .expect(403);
     });
 
-    it('an ADMIN can edit a PENDING ticket that belongs to someone else, notifying the reporter', async () => {
+    it('an ADMIN can edit a PENDING ticket that belongs to someone else', async () => {
       const id = await createTicket();
-      await apiRequest(app)
+      const res = await apiRequest(app)
         .patch(`/repairs/${id}/content`)
         .set('Authorization', `Bearer ${adminToken}`)
         .field('description', 'Fixed by admin')
         .expect(200);
 
-      expect(notifications.notifyRepairEdited).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not notify when the reporter edits their own ticket', async () => {
-      const id = await createTicket();
-      await apiRequest(app)
-        .patch(`/repairs/${id}/content`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .field('description', 'Still mine')
-        .expect(200);
-
-      expect(notifications.notifyRepairEdited).not.toHaveBeenCalled();
+      expect((res.body as RepairTicketResponse).description).toBe(
+        'Fixed by admin',
+      );
     });
 
     it('404s editing a Repair Ticket that does not exist', () => {
@@ -589,7 +556,7 @@ describe('Repairs (e2e)', () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
 
@@ -603,12 +570,12 @@ describe('Repairs (e2e)', () => {
       const id = await createTicket();
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'IN_PROGRESS' })
         .expect(200);
       await apiRequest(app)
         .patch(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${maintenanceToken}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
 
@@ -626,24 +593,19 @@ describe('Repairs (e2e)', () => {
         .expect(403);
     });
 
-    it('an ADMIN can delete a PENDING ticket that belongs to someone else, notifying the reporter', async () => {
+    it('an ADMIN can delete a PENDING ticket that belongs to someone else', async () => {
       const id = await createTicket();
       await apiRequest(app)
         .delete(`/repairs/${id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(204);
 
-      expect(notifications.notifyRepairDeleted).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not notify when the reporter deletes their own ticket', async () => {
-      const id = await createTicket();
-      await apiRequest(app)
-        .delete(`/repairs/${id}`)
-        .set('Authorization', `Bearer ${userToken}`)
-        .expect(204);
-
-      expect(notifications.notifyRepairDeleted).not.toHaveBeenCalled();
+      const listing = await apiRequest(app)
+        .get('/repairs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const ids = (listing.body as RepairTicketResponse[]).map((t) => t.id);
+      expect(ids).not.toContain(id);
     });
 
     it('404s deleting a Repair Ticket that does not exist', () => {

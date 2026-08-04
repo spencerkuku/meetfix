@@ -42,7 +42,6 @@ describe('Auth (e2e)', () => {
     email: 'teacher@school.edu.tw',
     name: '陳老師',
     hostedDomain: 'school.edu.tw',
-    refreshToken: 'refresh-token-1',
     ...overrides,
   });
 
@@ -130,7 +129,7 @@ describe('Auth (e2e)', () => {
     expect(userCount).toBe(0);
   });
 
-  it('provisions a new User + Account with Role USER on first login, and encrypts the refresh token at rest', async () => {
+  it('provisions a new User + Account with Role USER on first login', async () => {
     const { user } = await authService.loginWithGoogle(schoolProfile());
 
     expect(user.role).toBe('USER');
@@ -141,9 +140,6 @@ describe('Auth (e2e)', () => {
     });
     expect(account?.provider).toBe('GOOGLE');
     expect(account?.googleSub).toBe('google-sub-1');
-    // The raw refresh token from Google must never be stored verbatim.
-    expect(account?.googleRefreshToken).not.toBe('refresh-token-1');
-    expect(account?.googleRefreshToken).toEqual(expect.any(String));
   });
 
   it('stores the Google profile photo as avatarUrl on first login', async () => {
@@ -239,13 +235,15 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
-  it('GET /auth/google redirects to Google restricted to the school domain with the Calendar scope', async () => {
+  it('GET /auth/google redirects to Google restricted to the school domain', async () => {
     const res = await apiRequest(app).get('/auth/google').expect(302);
 
     const location = res.headers.location;
     expect(location).toContain('accounts.google.com');
     expect(location).toContain('hd=school.edu.tw');
-    expect(location).toContain(
+    expect(location).not.toContain('access_type=offline');
+    expect(location).not.toContain('prompt=consent');
+    expect(location).not.toContain(
       encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
     );
   });
@@ -292,7 +290,7 @@ describe('Auth (e2e)', () => {
       return apiRequest(app).get('/auth/google/link').expect(401);
     });
 
-    it('GET /auth/google/link returns a Google authorization URL scoped to the school domain and Calendar, carrying a state for the current user', async () => {
+    it('GET /auth/google/link returns a Google authorization URL scoped to the school domain, carrying a state for the current user', async () => {
       const { accessToken } = await registerAndLoginPasswordUser();
 
       const res = await apiRequest(app)
@@ -303,7 +301,9 @@ describe('Auth (e2e)', () => {
       const { url } = res.body as { url: string };
       expect(url).toContain('accounts.google.com');
       expect(url).toContain('hd=school.edu.tw');
-      expect(url).toContain(
+      expect(url).not.toContain('access_type=offline');
+      expect(url).not.toContain('prompt=consent');
+      expect(url).not.toContain(
         encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
       );
       expect(new URL(url).searchParams.get('state')).toEqual(expect.any(String));
@@ -326,8 +326,6 @@ describe('Auth (e2e)', () => {
       expect(account?.provider).toBe('PASSWORD');
       expect(account?.passwordHash).toEqual(expect.any(String));
       expect(account?.googleSub).toBe('google-sub-link-1');
-      expect(account?.googleRefreshToken).not.toBe('refresh-token-1');
-      expect(account?.googleRefreshToken).toEqual(expect.any(String));
     });
 
     it('populates avatarUrl from the linked Google profile', async () => {

@@ -10,12 +10,9 @@ import {
   BookingStatus,
   Prisma,
   Role,
-  Room,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto } from './create-booking.dto';
 import { UpdateBookingDto } from './update-booking.dto';
 import { withUserName } from '../common/with-user-name';
@@ -39,59 +36,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly notifications: NotificationsService,
-    private readonly calendar: CalendarService,
   ) {}
-
-  // A Booking's Google Calendar sync (issue #11) needs the requester's
-  // Account (provider + refresh token), which findAll/create/decide/remove
-  // otherwise never fetch — kept to one place rather than repeating the
-  // same findUnique across every write path.
-  private findAccountFor(userId: string) {
-    return this.prisma.account.findUnique({ where: { userId } });
-  }
-
-  // Syncs a newly-CONFIRMED Booking to Calendar and persists the resulting
-  // event id, mutating `booking` in place so the caller's response reflects
-  // it without a second read. Shared by create() (auto-confirmed Bookings)
-  // and decide() (an approved Booking) — the only two places a Booking
-  // becomes CONFIRMED.
-  private async applyCalendarSync(booking: Booking, room: Room): Promise<void> {
-    const account = await this.findAccountFor(booking.userId);
-    if (!account) return;
-    const googleEventId = await this.calendar.syncBookingConfirmed(
-      booking,
-      room,
-      account,
-    );
-    if (!googleEventId) return;
-    await this.prisma.booking.update({
-      where: { id: booking.id },
-      data: { googleEventId },
-    });
-    booking.googleEventId = googleEventId;
-  }
-
-  private async removeCalendarEvent(booking: Booking): Promise<void> {
-    const account = await this.findAccountFor(booking.userId);
-    if (!account) return;
-    await this.calendar.removeBookingEvent(booking, account);
-  }
-
-  // Updates an already-synced CONFIRMED Booking's existing Calendar event in
-  // place (title/time/location may all have changed) rather than inserting a
-  // duplicate. Falls back to inserting a new event if none exists yet (e.g.
-  // an earlier sync attempt never succeeded) — same best-effort philosophy
-  // as applyCalendarSync/syncBookingConfirmed.
-  private async updateCalendarEvent(booking: Booking, room: Room): Promise<void> {
-    const account = await this.findAccountFor(booking.userId);
-    if (!account) return;
-    if (!booking.googleEventId) {
-      await this.applyCalendarSync(booking, room);
-      return;
-    }
-    await this.calendar.updateBookingEvent(booking, room, account);
-  }
 
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
@@ -174,22 +119,6 @@ export class BookingsService {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
-      if (created.status === BookingStatus.PENDING_APPROVAL) {
-        // No Room has a specific assigned manager (see CONTEXT.md's
-        // ROOM_MANAGER definition — it's a role, not a per-Room
-        // assignment), so every ROOM_MANAGER is notified of every
-        // approval-required Booking, not just "their" Room's.
-        const roomManagers = await this.prisma.user.findMany({
-          where: { role: Role.ROOM_MANAGER },
-        });
-        await this.notifications.notifyBookingSubmittedForApproval(
-          created,
-          room,
-          roomManagers,
-        );
-      } else {
-        await this.applyCalendarSync(created, room);
-      }
       return withUserName(created);
     } catch (err) {
       // Postgres detects the write skew between two concurrent conflict
@@ -227,7 +156,7 @@ export class BookingsService {
   ): Promise<BookingWithUserName> {
     const existing = await this.prisma.booking.findUnique({
       where: { id },
-      include: { user: true, room: true },
+      include: { user: true },
     });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Booking not found');
@@ -253,7 +182,6 @@ export class BookingsService {
     const endTime = dto.endTime ? new Date(dto.endTime) : existing.endTime;
     const roomId = dto.roomId ?? existing.roomId;
     const previousStatus = existing.status;
-    let room = existing.room;
     let status = existing.status;
 
     if (isRescheduling) {
@@ -280,7 +208,6 @@ export class BookingsService {
       if (!newRoom) {
         throw new NotFoundException('Room not found');
       }
-      room = newRoom;
       status = newRoom.requiresApproval
         ? BookingStatus.PENDING_APPROVAL
         : BookingStatus.CONFIRMED;
@@ -349,33 +276,6 @@ export class BookingsService {
       throw err;
     }
 
-    if (previousStatus === BookingStatus.CONFIRMED && status === BookingStatus.PENDING_APPROVAL) {
-      await this.removeCalendarEvent(updated);
-      const roomManagers = await this.prisma.user.findMany({
-        where: { role: Role.ROOM_MANAGER },
-      });
-      await this.notifications.notifyBookingSubmittedForApproval(
-        updated,
-        room,
-        roomManagers,
-      );
-    } else if (status === BookingStatus.CONFIRMED) {
-      if (previousStatus === BookingStatus.CONFIRMED) {
-        await this.updateCalendarEvent(updated, room);
-      } else {
-        await this.applyCalendarSync(updated, room);
-      }
-    }
-
-    if (userId !== updated.userId) {
-      await this.notifications.notifyBookingEdited(
-        updated,
-        room,
-        updated.user,
-        userId,
-      );
-    }
-
     return withUserName(updated);
   }
 
@@ -384,10 +284,7 @@ export class BookingsService {
   // disappear from all reads, without touching BookingStatus semantics.
   // The sole self-service removal action — cancel() was merged into this.
   async remove(id: string, userId: string, role: Role): Promise<void> {
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-      include: { user: true, room: true },
-    });
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking || booking.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
@@ -409,19 +306,11 @@ export class BookingsService {
     if (result.count === 0) {
       throw new ConflictException('This Booking was already deleted');
     }
-    if (isActiveBooking(booking.status)) {
-      await this.removeCalendarEvent(booking);
-      await this.notifications.notifyBookingDeleted(
-        booking,
-        booking.room,
-        booking.user,
-        userId,
-      );
-    }
   }
 
-  // Booking Approval: a ROOM_MANAGER (or ADMIN) deciding a PENDING_APPROVAL
-  // Booking. See CONTEXT.md — distinct from Account Approval.
+  // Booking Approval: a FACILITY_MANAGER (or ADMIN) deciding a
+  // PENDING_APPROVAL Booking. See CONTEXT.md — distinct from Account
+  // Approval.
   async approve(id: string, actorId: string): Promise<BookingWithUserName> {
     return this.decide(id, actorId, BookingStatus.CONFIRMED);
   }
@@ -444,9 +333,9 @@ export class BookingsService {
         // Conditional on status and deletedAt, not just id, so two racing
         // decide() calls (or a decide() racing a concurrent remove()) can't
         // both proceed — only the first to commit wins, closing both the
-        // deleted-Booking-resurrection race and the duplicate-approval
-        // orphaned-Calendar-event race in one atomic guard, mirroring
-        // create()'s existing Serializable-transaction correctness.
+        // deleted-Booking-resurrection race and the duplicate-approval race
+        // in one atomic guard, mirroring create()'s existing
+        // Serializable-transaction correctness.
         const result = await tx.booking.updateMany({
           where: {
             id,
@@ -462,7 +351,7 @@ export class BookingsService {
         }
         return tx.booking.findUniqueOrThrow({
           where: { id },
-          include: { user: true, room: true },
+          include: { user: true },
         });
       },
       {
@@ -473,17 +362,6 @@ export class BookingsService {
         detail: outcome === BookingStatus.CONFIRMED ? 'Approved' : 'Rejected',
       },
     );
-    await this.notifications.notifyBookingDecision(
-      updated,
-      updated.room,
-      updated.user,
-    );
-    if (outcome === BookingStatus.CONFIRMED) {
-      await this.applyCalendarSync(updated, updated.room);
-    } else {
-      await this.removeCalendarEvent(updated);
-    }
-    const { room: _room, ...bookingWithUser } = updated;
-    return withUserName(bookingWithUser);
+    return withUserName(updated);
   }
 }
