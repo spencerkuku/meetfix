@@ -177,10 +177,15 @@ model RepairTicket {
 // Audit Log Entry: an immutable record of who performed a state-changing
 // action, when, and on what — currently scoped to Role changes, Booking
 // Approvals, Account Approvals, Repair Status changes, Account
-// Suspension/Reactivation, and User Deletion. See CONTEXT.md.
+// Suspension/Reactivation, User Deletion, and (as a deliberate exception —
+// see CONTEXT.md) the read-only but sensitive act of bulk-exporting Repair
+// Ticket data. See CONTEXT.md.
 // `targetType`/`targetId` deliberately isn't a typed FK — the target can be
 // a User, Booking, Account or RepairTicket, and the log must outlive its
-// target (never cascade-deleted).
+// target (never cascade-deleted). A Repair Export entry has no single
+// target row, so targetType is the fixed string "RepairExport" and
+// targetId is a fixed placeholder ("all") rather than a real id — the
+// export's actual scope (date range, count) lives in `detail`.
 enum AuditAction {
   ROLE_CHANGE
   BOOKING_APPROVAL
@@ -190,6 +195,7 @@ enum AuditAction {
   ACCOUNT_SUSPENSION
   ACCOUNT_REACTIVATION
   USER_DELETION
+  REPAIR_EXPORT
 }
 
 model AuditLogEntry {

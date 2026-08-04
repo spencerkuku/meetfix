@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,13 +9,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import type { Express } from 'express';
+import type { Express, Response } from 'express';
 import { Role } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -31,6 +34,24 @@ import {
   repairPhotoUrl,
 } from './repair-upload.config';
 
+// `from`/`to` come in as plain YYYY-MM-DD query strings from an HTML date
+// input. `endOfDay` pushes the "to" bound to 23:59:59.999 the same day so
+// the range is inclusive of that whole day, not just its midnight instant.
+function parseDateQueryParam(
+  value: string | undefined,
+  paramName: string,
+  endOfDay: boolean,
+): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(
+    `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`,
+  );
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`Invalid ${paramName} date`);
+  }
+  return date;
+}
+
 @Controller('repairs')
 @UseGuards(JwtAuthGuard)
 export class RepairsController {
@@ -39,6 +60,42 @@ export class RepairsController {
   @Get()
   findAll(@CurrentUser() user: User) {
     return this.repairsService.findAll(user.id, user.role);
+  }
+
+  // FACILITY_MANAGER/ADMIN-only bulk export. No other GET route shares this
+  // path, so there's no route-ordering ambiguity with findAll() above.
+  @Get('export')
+  @UseGuards(RolesGuard)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
+  async exportCsv(
+    @CurrentUser() user: User,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Res() res: Response,
+  ) {
+    const fromDate = parseDateQueryParam(from, 'from', false);
+    const toDate = parseDateQueryParam(to, 'to', true);
+    if (fromDate && toDate && fromDate > toDate) {
+      throw new BadRequestException('from must not be after to');
+    }
+
+    const { csv } = await this.repairsService.exportCsv(
+      user.id,
+      user.role,
+      fromDate,
+      toDate,
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rangeLabel = from && to ? `${from}_${to}` : '全部';
+    const filename = `報修單_${rangeLabel}_${today}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.send(csv);
   }
 
   // Rate limited: unthrottled, this endpoint let any USER script an

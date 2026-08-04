@@ -20,6 +20,7 @@ import { withUserName } from '../common/with-user-name';
 import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
 import { assertReporterInfoComplete } from '../common/assert-reporter-info-complete';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
+import { buildRepairExportCsv } from './repair-export.csv';
 
 // Repair Status advances one step at a time — see CONTEXT.md. A ticket's
 // current status maps to the single status it can next become; `undefined`
@@ -250,6 +251,57 @@ export class RepairsService {
         'Only a PENDING Repair Ticket can be deleted',
       );
     }
+  }
+
+  // FACILITY_MANAGER/ADMIN-only export (enforced by the controller's
+  // RolesGuard). Deliberately excludes the reporter relation — the export
+  // is a bulk operational report, not a reporter directory, so it never
+  // touches userName/userClass/userPhone (see repair-export.csv.ts).
+  // `from`/`to` are inclusive createdAt bounds; omitting both returns every
+  // non-deleted Repair Ticket.
+  async findForExport(from?: Date, to?: Date): Promise<RepairTicket[]> {
+    return this.prisma.repairTicket.findMany({
+      where: {
+        deletedAt: null,
+        ...(from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Wraps findForExport() with the CSV rendering and the Audit Log Entry
+  // required by CONTEXT.md's (deliberately widened) Audit Log Entry
+  // definition — a bulk export of Repair Ticket data is sensitive enough to
+  // record even though it's read-only and PII-free. Not run inside
+  // runAuditedTransaction() since there is no state change to make atomic
+  // with; a plain record() write after the read is enough.
+  async exportCsv(
+    actorId: string,
+    actorRole: Role,
+    from?: Date,
+    to?: Date,
+  ): Promise<{ csv: string; count: number }> {
+    const tickets = await this.findForExport(from, to);
+    await this.audit.record(
+      actorId,
+      AuditAction.REPAIR_EXPORT,
+      'RepairExport',
+      'all',
+      JSON.stringify({
+        from: from?.toISOString() ?? null,
+        to: to?.toISOString() ?? null,
+        count: tickets.length,
+        actorRole,
+      }),
+    );
+    return { csv: buildRepairExportCsv(tickets), count: tickets.length };
   }
 
   findAllCategories() {

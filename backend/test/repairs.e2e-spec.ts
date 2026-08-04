@@ -702,6 +702,144 @@ describe('Repairs (e2e)', () => {
     });
   });
 
+  describe('Repair Ticket export (bulk, #35)', () => {
+    async function createTicket(
+      location: string,
+      token: string = userToken,
+    ): Promise<string> {
+      const res = await apiRequest(app)
+        .post('/repairs')
+        .set('Authorization', `Bearer ${token}`)
+        .field('location', location)
+        .field('category', '硬體設備')
+        .field('description', '匯出測試用報修單')
+        .field('userClass', '資訊三甲')
+        .field('userPhone', '0912-345-678')
+        .expect(201);
+      return (res.body as RepairTicketResponse).id;
+    }
+
+    it('rejects export from a non-FACILITY_MANAGER, non-ADMIN User', async () => {
+      await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('FACILITY_MANAGER can export all Repair Tickets as CSV with Chinese headers and BOM, excluding reporter PII', async () => {
+      await createTicket('匯出測試地點 A');
+
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.headers['content-disposition']).toContain('attachment');
+      expect(res.text.charCodeAt(0)).toBe(0xfeff);
+      expect(res.text).toContain('地點,分類,描述,狀態,管理員回覆,建立時間');
+      expect(res.text).toContain('匯出測試地點 A');
+      expect(res.text).toContain('待處理');
+      // Reporter PII (name/class/phone) is deliberately excluded from the
+      // bulk export — it's a downloadable file that can leave the system,
+      // unlike the in-app listing.
+      expect(res.text).not.toContain('資訊三甲');
+      expect(res.text).not.toContain('0912-345-678');
+    });
+
+    it('ADMIN can also export', async () => {
+      await createTicket('匯出測試地點 ADMIN');
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(res.text).toContain('匯出測試地點 ADMIN');
+    });
+
+    it('filters exported tickets by createdAt date range, inclusive of the full end day', async () => {
+      const inRangeId = await createTicket('匯出範圍內');
+      const beforeRangeId = await createTicket('匯出範圍前');
+      const afterRangeId = await createTicket('匯出範圍後');
+
+      await prisma.repairTicket.update({
+        where: { id: inRangeId },
+        data: { createdAt: new Date('2026-03-15T12:00:00.000Z') },
+      });
+      await prisma.repairTicket.update({
+        where: { id: beforeRangeId },
+        data: { createdAt: new Date('2026-03-09T23:59:59.999Z') },
+      });
+      await prisma.repairTicket.update({
+        where: { id: afterRangeId },
+        data: { createdAt: new Date('2026-03-21T00:00:00.000Z') },
+      });
+
+      const res = await apiRequest(app)
+        .get('/repairs/export?from=2026-03-10&to=2026-03-20')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      expect(res.text).toContain('匯出範圍內');
+      expect(res.text).not.toContain('匯出範圍前');
+      expect(res.text).not.toContain('匯出範圍後');
+    });
+
+    it('excludes soft-deleted Repair Tickets from the export', async () => {
+      const id = await createTicket('匯出應排除的已刪除單');
+      await apiRequest(app)
+        .delete(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(204);
+
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      expect(res.text).not.toContain('匯出應排除的已刪除單');
+    });
+
+    it('rejects a malformed date query param', () => {
+      return apiRequest(app)
+        .get('/repairs/export?from=not-a-date')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(400);
+    });
+
+    it('rejects a from date after the to date', () => {
+      return apiRequest(app)
+        .get('/repairs/export?from=2026-03-20&to=2026-03-10')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(400);
+    });
+
+    it('records exactly one AuditLogEntry with the requested range and returned count', async () => {
+      await createTicket('稽核紀錄測試地點');
+
+      await apiRequest(app)
+        .get('/repairs/export?from=2026-01-01&to=2026-12-31')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      const entries = await prisma.auditLogEntry.findMany({
+        where: { action: 'REPAIR_EXPORT', targetType: 'RepairExport' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(entries.length).toBeGreaterThan(0);
+      const latest = entries[0];
+      expect(latest.targetId).toBe('all');
+      const detail = JSON.parse(latest.detail ?? '{}') as {
+        from: string | null;
+        to: string | null;
+        count: number;
+        actorRole: string;
+      };
+      expect(detail.from).toBe('2026-01-01T00:00:00.000Z');
+      expect(detail.to).toBe('2026-12-31T23:59:59.999Z');
+      expect(detail.count).toBeGreaterThan(0);
+      expect(detail.actorRole).toBe('FACILITY_MANAGER');
+    });
+  });
+
   describe('Repair Categories', () => {
     it('any authenticated User can list Repair Categories', async () => {
       const res = await apiRequest(app)

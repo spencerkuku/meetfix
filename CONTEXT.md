@@ -80,4 +80,4 @@ An Admin-managed classification for Repair Tickets (e.g. "硬體設備", "冷氣
 ### Operational
 
 **Audit Log Entry**:
-An immutable record of who performed a state-changing action, when, and on what — currently scoped to Role changes, Booking Approvals, Account Approvals, and Repair Status changes.
+An immutable record of who performed a state-changing action, when, and on what — currently scoped to Role changes, Booking Approvals, Account Approvals, and Repair Status changes. Also covers one deliberate exception to "state-changing": a FACILITY_MANAGER/ADMIN bulk-exporting Repair Ticket data, recorded even though the export itself is read-only, because it's a sensitive enough operation on Repair Ticket data to warrant the same audit trail.
