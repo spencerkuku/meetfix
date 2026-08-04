@@ -486,13 +486,13 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
                                       if (!isPast && canEdit) onOpenBooking(b);
                                   }}
                               >
-                              <div className="font-bold truncate flex items-center justify-between">
-                                  <span className="flex items-center gap-1">
-                                    {isPending && <Clock size={10} className="text-yellow-600"/>}
-                                    {b.title}
-                                  </span>
+                              <div className="font-bold truncate flex items-center gap-1">
+                                  {isPending && <Clock size={10} className="text-yellow-600 shrink-0"/>}
+                                  {!showRoomSubHeader && (
+                                    <span className="shrink-0 font-normal opacity-70">[{rooms.find(r => r.id === b.roomId)?.name}]</span>
+                                  )}
+                                  <span className="truncate">{b.title}</span>
                               </div>
-                              {!showRoomSubHeader && <div className="truncate text-[10px] opacity-80">{rooms.find(r => r.id === b.roomId)?.name}</div>}
                               </div>
                           );
                         })}
