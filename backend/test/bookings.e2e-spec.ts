@@ -384,7 +384,7 @@ describe('Bookings (e2e)', () => {
         .expect(404);
     });
 
-    it('two racing remove() calls on the same Booking result in exactly one success and one 409 Conflict', async () => {
+    it('two racing remove() calls on the same Booking result in exactly one success and one already-deleted rejection', async () => {
       const slot = nextSlot();
       const created = await apiRequest(app)
         .post('/bookings')
@@ -393,10 +393,16 @@ describe('Bookings (e2e)', () => {
         .expect(201);
       const createdBody = created.body as BookingResponse;
 
-      // Both requests pass the initial findUnique before either commits its
-      // updateMany — the loser's `where: { deletedAt: null }` then matches
-      // zero rows, so it must be rejected with 409, not silently no-op or
-      // succeed a second time.
+      // The loser's exact status depends on where in remove() it loses the
+      // race, and that's inherently timing-dependent, not a defect:
+      // - if its own findUnique reads after the winner's updateMany already
+      //   committed, remove() 404s before ever attempting a write;
+      // - if both findUniques read before either write commits, the loser's
+      //   own `where: { deletedAt: null }` updateMany matches zero rows and
+      //   remove() 409s instead.
+      // Either way the atomic updateMany guard (see bookings.service.ts)
+      // guarantees exactly one of the two ever soft-deletes the Booking —
+      // that invariant, not the exact status code, is what this test checks.
       const [firstRes, secondRes] = await Promise.all([
         apiRequest(app)
           .delete(`/bookings/${createdBody.id}`)
@@ -407,7 +413,10 @@ describe('Bookings (e2e)', () => {
       ]);
 
       const statuses = [firstRes.status, secondRes.status].sort();
-      expect(statuses).toEqual([204, 409]);
+      expect(statuses).toEqual(expect.arrayContaining([204]));
+      expect(statuses).not.toEqual([204, 204]);
+      const [, loserStatus] = statuses;
+      expect([404, 409]).toContain(loserStatus);
     });
 
     it('404s deleting a Booking that does not exist', () => {
