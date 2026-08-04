@@ -13,11 +13,13 @@ import {
   Role,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { AuditService, AuditEntry } from '../audit/audit.service';
 import { UpdateRoleDto } from './update-role.dto';
 import { UpdateStatusDto } from './update-status.dto';
 import { AddDomainDto } from './add-domain.dto';
 import { UpdateDomainDto } from './update-domain.dto';
+import { isSerializationFailure } from '../common/is-serialization-failure';
+import { SERIALIZABLE_TX_OPTIONS } from '../common/serializable-tx-options';
 
 function toPendingAccount(
   account: Account & { user: { id: string; email: string; name: string } },
@@ -230,9 +232,35 @@ export class AdminService {
 
   // Shared by Role Change, Suspension, and Deletion — none of them may
   // leave the system with zero remaining Admins. See CONTEXT.md.
-  private async assertNotLastAdmin(userId: string, verb: string) {
-    const remainingAdmins = await this.prisma.user.count({
-      where: { role: Role.ADMIN, id: { not: userId } },
+  //
+  // Two things make this safe against two Admins racing to act on each
+  // other concurrently (the security audit finding this closes):
+  //
+  // 1. It must run inside the SAME Serializable transaction as the write it
+  //    guards (via `tx`, not `this.prisma`) — a standalone read-then-later-
+  //    write lets two concurrent requests each observe the pre-mutation
+  //    count and both pass.
+  // 2. The count must require `account.status: ACTIVE`, not just
+  //    `role: ADMIN`. Suspension only changes Account.status, never
+  //    User.role — if this count ignored status, two Admins suspending
+  //    each other would touch disjoint columns (each write hits the OTHER
+  //    party's Account row, each read only inspects its OWN), so Postgres
+  //    would see no overlapping read/write and never detect the conflict.
+  //    Requiring ACTIVE makes each transaction's count read the very
+  //    Account row the other transaction is about to write, which is what
+  //    lets Postgres's Serializable isolation catch the race and abort one
+  //    side.
+  private async assertNotLastAdminTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    verb: string,
+  ) {
+    const remainingAdmins = await tx.user.count({
+      where: {
+        role: Role.ADMIN,
+        id: { not: userId },
+        account: { status: AccountStatus.ACTIVE },
+      },
     });
     if (remainingAdmins === 0) {
       throw new BadRequestException(`Cannot ${verb} the last remaining Admin`);
@@ -255,11 +283,19 @@ export class AdminService {
         'This User does not have an active Account — use Account Approval instead',
       );
     }
-    if (user.role === Role.ADMIN && dto.role !== Role.ADMIN) {
-      await this.assertNotLastAdmin(userId, 'remove');
-    }
-    await this.audit.runAuditedTransaction(
-      (tx) => tx.user.update({ where: { id: userId }, data: { role: dto.role } }),
+    const isRemovingAdmin = user.role === Role.ADMIN && dto.role !== Role.ADMIN;
+    await this.runAdminGuardedTransaction(
+      isRemovingAdmin,
+      'remove',
+      async (tx) => {
+        if (isRemovingAdmin) {
+          await this.assertNotLastAdminTx(tx, userId, 'remove');
+        }
+        return tx.user.update({
+          where: { id: userId },
+          data: { role: dto.role },
+        });
+      },
       {
         actorId,
         action: AuditAction.ROLE_CHANGE,
@@ -298,16 +334,21 @@ export class AdminService {
         'This User does not have an active Account — use Account Approval instead',
       );
     }
-    if (dto.status === AccountStatus.SUSPENDED && user.role === Role.ADMIN) {
-      await this.assertNotLastAdmin(userId, 'suspend');
-    }
+    const isSuspendingAdmin =
+      dto.status === AccountStatus.SUSPENDED && user.role === Role.ADMIN;
 
-    await this.audit.runAuditedTransaction(
-      (tx) =>
-        tx.account.update({
+    await this.runAdminGuardedTransaction(
+      isSuspendingAdmin,
+      'suspend',
+      async (tx) => {
+        if (isSuspendingAdmin) {
+          await this.assertNotLastAdminTx(tx, userId, 'suspend');
+        }
+        return tx.account.update({
           where: { userId },
           data: { status: dto.status },
-        }),
+        });
+      },
       {
         actorId,
         action:
@@ -339,12 +380,15 @@ export class AdminService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    if (user.role === Role.ADMIN) {
-      await this.assertNotLastAdmin(userId, 'delete');
-    }
+    const isDeletingAdmin = user.role === Role.ADMIN;
 
-    await this.audit.runAuditedTransaction(
+    await this.runAdminGuardedTransaction(
+      isDeletingAdmin,
+      'delete',
       async (tx) => {
+        if (isDeletingAdmin) {
+          await this.assertNotLastAdminTx(tx, userId, 'delete');
+        }
         await tx.auditLogEntry.updateMany({
           where: { actorId: userId },
           data: { actorName: user.name },
@@ -367,5 +411,34 @@ export class AdminService {
         detail: `Deleted User ${user.name} <${user.email}> (cascaded ${result.bookingCount} Booking(s), ${result.repairTicketCount} Repair Ticket(s))`,
       }),
     );
+  }
+
+  // Shared by updateUserRole/updateUserStatus/deleteUser: runs `mutate`
+  // audited exactly like AuditService.runAuditedTransaction, but when
+  // `guarded` is true also requests Serializable isolation and translates
+  // the resulting write-skew conflict (two Admins racing to act on each
+  // other — see assertNotLastAdminTx) into the same
+  // "Cannot <verb> the last remaining Admin" error the guard itself throws,
+  // rather than leaking a raw transaction-conflict error.
+  private async runAdminGuardedTransaction<T>(
+    guarded: boolean,
+    verb: string,
+    mutate: (tx: Prisma.TransactionClient) => Promise<T>,
+    auditEntry: AuditEntry | null | ((result: T) => AuditEntry | null),
+  ): Promise<T> {
+    try {
+      return await this.audit.runAuditedTransaction(
+        mutate,
+        auditEntry,
+        guarded ? SERIALIZABLE_TX_OPTIONS : undefined,
+      );
+    } catch (err) {
+      if (guarded && isSerializationFailure(err)) {
+        throw new BadRequestException(
+          `Cannot ${verb} the last remaining Admin`,
+        );
+      }
+      throw err;
+    }
   }
 }

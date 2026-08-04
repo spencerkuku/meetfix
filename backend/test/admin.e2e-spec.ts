@@ -508,6 +508,60 @@ describe('Admin (e2e)', () => {
       });
     });
 
+    it('a race between two Admins suspending each other never leaves zero active Admins', async () => {
+      const tokenA = await tokenFor('race-suspend-a@school.edu.tw', Role.ADMIN);
+      const tokenB = await tokenFor('race-suspend-b@school.edu.tw', Role.ADMIN);
+      const [adminA, adminB] = await Promise.all([
+        prisma.user.findUniqueOrThrow({
+          where: { email: 'race-suspend-a@school.edu.tw' },
+        }),
+        prisma.user.findUniqueOrThrow({
+          where: { email: 'race-suspend-b@school.edu.tw' },
+        }),
+      ]);
+
+      const [resA, resB] = await Promise.all([
+        apiRequest(app)
+          .patch(`/admin/users/${adminB.id}/status`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ status: 'SUSPENDED' }),
+        apiRequest(app)
+          .patch(`/admin/users/${adminA.id}/status`)
+          .set('Authorization', `Bearer ${tokenB}`)
+          .send({ status: 'SUSPENDED' }),
+      ]);
+
+      // At most one of the two concurrent suspensions may succeed — the
+      // race must never leave both Admins SUSPENDED at once.
+      expect([resA.status, resB.status].sort()).not.toEqual([200, 200]);
+
+      const [refetchedA, refetchedB] = await Promise.all([
+        prisma.user.findUniqueOrThrow({
+          where: { id: adminA.id },
+          include: { account: true },
+        }),
+        prisma.user.findUniqueOrThrow({
+          where: { id: adminB.id },
+          include: { account: true },
+        }),
+      ]);
+      const activeCount = [refetchedA, refetchedB].filter(
+        (u) => u.account!.status === 'ACTIVE',
+      ).length;
+      expect(activeCount).toBeGreaterThanOrEqual(1);
+
+      // Reset both back to USER so they don't count as remaining Admins for
+      // later tests in this file (afterEach only cleans PASSWORD Accounts).
+      await prisma.user.updateMany({
+        where: { id: { in: [adminA.id, adminB.id] } },
+        data: { role: Role.USER },
+      });
+      await prisma.account.updateMany({
+        where: { userId: { in: [adminA.id, adminB.id] } },
+        data: { status: 'ACTIVE' },
+      });
+    });
+
     it('rejects an unknown status value', async () => {
       const targetUser = await prisma.user.findUniqueOrThrow({
         where: { email: 'plainuser@school.edu.tw' },
@@ -649,6 +703,48 @@ describe('Admin (e2e)', () => {
         .delete('/admin/users/not-a-real-user')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(404);
+    });
+
+    it('a race between two Admins deleting each other never leaves zero Admins', async () => {
+      const tokenA = await tokenFor('race-delete-a@school.edu.tw', Role.ADMIN);
+      const tokenB = await tokenFor('race-delete-b@school.edu.tw', Role.ADMIN);
+      const [adminA, adminB] = await Promise.all([
+        prisma.user.findUniqueOrThrow({
+          where: { email: 'race-delete-a@school.edu.tw' },
+        }),
+        prisma.user.findUniqueOrThrow({
+          where: { email: 'race-delete-b@school.edu.tw' },
+        }),
+      ]);
+
+      const [resA, resB] = await Promise.all([
+        apiRequest(app)
+          .delete(`/admin/users/${adminB.id}`)
+          .set('Authorization', `Bearer ${tokenA}`),
+        apiRequest(app)
+          .delete(`/admin/users/${adminA.id}`)
+          .set('Authorization', `Bearer ${tokenB}`),
+      ]);
+
+      // At most one of the two concurrent deletions may succeed — the race
+      // must never leave both Admins deleted at once.
+      expect([resA.status, resB.status].sort()).not.toEqual([204, 204]);
+
+      const survivors = await prisma.user.findMany({
+        where: { id: { in: [adminA.id, adminB.id] } },
+      });
+      expect(survivors.length).toBeGreaterThanOrEqual(1);
+
+      // Clean up whichever survived so it doesn't count as a remaining
+      // Admin for later tests in this file.
+      if (survivors.length > 0) {
+        await prisma.account.deleteMany({
+          where: { userId: { in: survivors.map((u) => u.id) } },
+        });
+        await prisma.user.deleteMany({
+          where: { id: { in: survivors.map((u) => u.id) } },
+        });
+      }
     });
   });
 });

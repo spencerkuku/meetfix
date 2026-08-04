@@ -1,18 +1,21 @@
-import { AuditAction } from '@prisma/client';
+import { AuditAction, Prisma } from '@prisma/client';
 import { AuditService } from './audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('AuditService.runAuditedTransaction', () => {
   function makeService() {
     const tx = { marker: 'tx' };
+    const transactionSpy = jest.fn((fn: (tx: unknown) => Promise<unknown>) =>
+      fn(tx),
+    );
     const prisma = {
-      $transaction: (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
+      $transaction: transactionSpy,
     } as unknown as PrismaService;
     const service = new AuditService(prisma);
     const recordSpy = jest
       .spyOn(service, 'record')
       .mockResolvedValue(undefined as never);
-    return { service, recordSpy, tx };
+    return { service, recordSpy, tx, transactionSpy };
   }
 
   it('runs the mutation inside the transaction and records the audit entry with that same client', async () => {
@@ -47,5 +50,18 @@ describe('AuditService.runAuditedTransaction', () => {
 
     expect(result).toEqual({ id: 'ticket-1' });
     expect(recordSpy).not.toHaveBeenCalled();
+  });
+
+  it('forwards transaction options (e.g. isolationLevel) through to $transaction', async () => {
+    const { service, transactionSpy } = makeService();
+    const mutate = jest.fn().mockResolvedValue({ id: 'user-1' });
+
+    await service.runAuditedTransaction(mutate, null, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    expect(transactionSpy).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
   });
 });

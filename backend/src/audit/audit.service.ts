@@ -56,9 +56,15 @@ export class AuditService {
   // versa. Shared by every service that pairs a state change with an audit
   // record, so that choreography lives in one place instead of being
   // hand-copied per caller. See CONTEXT.md.
+  // `options` is threaded straight through to Prisma's `$transaction` — a
+  // caller that also needs to re-check an invariant (e.g. "at least one
+  // Admin remains") against data the write doesn't itself touch can request
+  // Serializable isolation so Postgres detects the write-skew conflict that
+  // Read Committed (the default) would silently miss. See AdminService.
   async runAuditedTransaction<T>(
     mutate: (tx: Prisma.TransactionClient) => Promise<T>,
     auditEntry: AuditEntry | null | ((result: T) => AuditEntry | null),
+    options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const result = await mutate(tx);
@@ -75,7 +81,7 @@ export class AuditService {
         );
       }
       return result;
-    });
+    }, options);
   }
 
   async findAll() {
