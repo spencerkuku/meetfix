@@ -18,6 +18,7 @@ import { UpdateBookingDto } from './update-booking.dto';
 import { withUserName } from '../common/with-user-name';
 import { ACTIVE_BOOKING_STATUSES, isActiveBooking } from './booking-status';
 import { assertOwnerOrAdmin } from '../common/assert-owner-or-admin';
+import { isSerializationFailure } from '../common/is-serialization-failure';
 
 // A Booking's startTime may not be more than this far in the past — small
 // enough to tolerate ordinary clock skew between client and server, not to
@@ -29,6 +30,14 @@ const PAST_START_TOLERANCE_MS = 5 * 60 * 1000;
 // a Room's slot — see the security audit finding this closes.
 const MAX_BOOKING_DURATION_MS = 24 * 60 * 60 * 1000;
 
+// The most active (CONFIRMED/PENDING_APPROVAL, not-yet-ended) Bookings a
+// single User may hold at once. Complements the creation-endpoint rate
+// limit (BookingsController) — that bounds *speed*, this bounds *total
+// simultaneous holdings*, so a sufficiently patient script staying under
+// the rate limit still can't accumulate unlimited future Room slots. See
+// the security audit finding this closes.
+const MAX_ACTIVE_BOOKINGS_PER_USER = 200;
+
 export type BookingWithUserName = Booking & { userName: string };
 
 @Injectable()
@@ -37,6 +46,31 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  // Shared by create() and update()'s reschedule path — both add a new
+  // active Room-slot claim for `userId` and must not push them over the
+  // cap. `excludeBookingId` lets update() exclude the very Booking being
+  // rescheduled from its own count.
+  private async assertUnderActiveBookingCap(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    excludeBookingId?: string,
+  ) {
+    const activeCount = await tx.booking.count({
+      where: {
+        userId,
+        deletedAt: null,
+        status: { in: ACTIVE_BOOKING_STATUSES },
+        endTime: { gt: new Date() },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+    });
+    if (activeCount >= MAX_ACTIVE_BOOKINGS_PER_USER) {
+      throw new BadRequestException(
+        `You already have ${MAX_ACTIVE_BOOKINGS_PER_USER} active Bookings — cancel or wait for one to end before creating another`,
+      );
+    }
+  }
 
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
@@ -87,6 +121,7 @@ export class BookingsService {
     try {
       const created = await this.prisma.$transaction(
         async (tx) => {
+          await this.assertUnderActiveBookingCap(tx, userId);
           // Slot Conflict: any existing Booking on this Room that overlaps
           // and is still CONFIRMED or PENDING_APPROVAL blocks this request.
           // See CONTEXT.md.
@@ -122,18 +157,9 @@ export class BookingsService {
       return withUserName(created);
     } catch (err) {
       // Postgres detects the write skew between two concurrent conflict
-      // checks under SERIALIZABLE and aborts the loser's transaction.
-      // Prisma surfaces that as the documented P2034 ("Transaction failed
-      // due to a write conflict or a deadlock") — treat it the same as a
-      // Slot Conflict rather than leaking a raw 500. The message-substring
-      // check is a fallback in case a given Prisma/Postgres version routes
-      // the error through PrismaClientUnknownRequestError instead.
-      const isSerializationFailure =
-        (err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2034') ||
-        (err instanceof Prisma.PrismaClientUnknownRequestError &&
-          err.message.includes('could not serialize access'));
-      if (isSerializationFailure) {
+      // checks under SERIALIZABLE and aborts the loser's transaction —
+      // treat it the same as a Slot Conflict rather than leaking a raw 500.
+      if (isSerializationFailure(err)) {
         throw new ConflictException(
           'This Room is already booked for an overlapping time range',
         );
@@ -218,6 +244,11 @@ export class BookingsService {
       updated = await this.prisma.$transaction(
         async (tx) => {
           if (isRescheduling) {
+            // Same active-Booking cap as create(), excluding this Booking's
+            // own row — a reschedule doesn't add a new active claim, so
+            // this only ever matters if a concurrent request changed the
+            // caller's count between our initial read and here.
+            await this.assertUnderActiveBookingCap(tx, userId, id);
             // Same Slot Conflict rule as create(), excluding this Booking's
             // own current slot.
             const conflict = await tx.booking.findFirst({
@@ -263,12 +294,7 @@ export class BookingsService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (err) {
-      const isSerializationFailure =
-        (err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2034') ||
-        (err instanceof Prisma.PrismaClientUnknownRequestError &&
-          err.message.includes('could not serialize access'));
-      if (isSerializationFailure) {
+      if (isSerializationFailure(err)) {
         throw new ConflictException(
           'This Room is already booked for an overlapping time range',
         );

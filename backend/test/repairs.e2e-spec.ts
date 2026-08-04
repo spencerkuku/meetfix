@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
@@ -9,6 +10,7 @@ import { serveUploads } from './../src/uploads/serve-uploads';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
 import { uploadFilePath } from './support/upload-file-path';
+import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 import { Role } from '@prisma/client';
 
 // Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
@@ -64,7 +66,10 @@ describe('Repairs (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue(permissiveThrottlerGuard)
+      .compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
     setApiPrefix(app);
@@ -675,5 +680,73 @@ describe('Repairs (e2e)', () => {
         .send({ name: 'Test Category C' })
         .expect(409);
     });
+  });
+});
+
+// A fresh app instance per test, each with its own in-memory
+// ThrottlerStorage, so one test's requests never count toward another
+// test's budget — and with the real ThrottlerGuard (not stubbed out, as it
+// is for every other test in this file), so the actual creation-endpoint
+// rate limit can be exercised directly.
+describe('Repair Ticket rate limiting (e2e)', () => {
+  let app: NestExpressApplication;
+  let authService: AuthService;
+  let prisma: PrismaService;
+  let token: string;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication<NestExpressApplication>();
+    setApiPrefix(app);
+    serveUploads(app);
+    authService = moduleFixture.get(AuthService);
+    prisma = moduleFixture.get(PrismaService);
+    await app.init();
+
+    const { user } = await authService.loginWithGoogle({
+      googleSub: 'sub-throttle-reporter@school.edu.tw',
+      email: 'throttle-reporter@school.edu.tw',
+      name: 'throttle-reporter@school.edu.tw',
+      hostedDomain: 'school.edu.tw',
+    });
+    const code = authService.createLoginCode(user.id);
+    ({ accessToken: token } = await authService.exchangeLoginCode(code));
+
+    await prisma.repairCategory.upsert({
+      where: { name: 'Throttle Test Category' },
+      create: { name: 'Throttle Test Category' },
+      update: {},
+    });
+  });
+
+  afterEach(async () => {
+    await prisma.repairTicket.deleteMany({});
+    await prisma.repairCategory.deleteMany({
+      where: { name: 'Throttle Test Category' },
+    });
+    await prisma.account.deleteMany({});
+    await prisma.user.deleteMany({});
+    await app.close();
+  });
+
+  it('rejects a POST /repairs burst past the configured limit with 429', async () => {
+    let sawThrottled = false;
+    for (let i = 0; i < 20; i++) {
+      const res = await apiRequest(app)
+        .post('/repairs')
+        .set('Authorization', `Bearer ${token}`)
+        .field('location', `Throttle burst ${i}`)
+        .field('category', 'Throttle Test Category')
+        .field('description', 'x');
+      if (res.status === 429) {
+        sawThrottled = true;
+        break;
+      }
+      expect(res.status).toBe(201);
+    }
+    expect(sawThrottled).toBe(true);
   });
 });

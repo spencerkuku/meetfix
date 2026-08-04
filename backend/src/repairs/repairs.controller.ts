@@ -13,6 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Express } from 'express';
 import { Role } from '@prisma/client';
 import type { User } from '@prisma/client';
@@ -40,7 +41,14 @@ export class RepairsController {
     return this.repairsService.findAll(user.id, user.role);
   }
 
+  // Rate limited: unthrottled, this endpoint let any USER script an
+  // unbounded flood of photo-attached submissions into the shared uploads
+  // volume. Looser than the auth endpoints' 5/60s, since ordinary ticket
+  // submission is legitimately more frequent than login attempts. See the
+  // security audit finding this closes.
   @Post()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseInterceptors(FileInterceptor('photo', repairPhotoUploadOptions))
   async create(
     @CurrentUser() user: User,

@@ -10,6 +10,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -30,12 +31,26 @@ export class BookingsController {
     return this.bookingsService.findAll();
   }
 
+  // Rate limited: room availability is a shared, contended resource — an
+  // unthrottled create() let any USER script permanent room-slot
+  // monopolization. Looser than the auth endpoints' 5/60s, since ordinary
+  // Booking creation is legitimately more frequent than login attempts;
+  // BookingsService.create's own active-Booking cap is the complementary
+  // guard against a *patient* script staying under this limit. See the
+  // security audit finding this closes.
   @Post()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   create(@CurrentUser() user: User, @Body() body: CreateBookingDto) {
     return this.bookingsService.create(user.id, body);
   }
 
+  // Rate limited for the same reason as create() above — a reschedule
+  // (roomId/startTime/endTime change) re-runs the same Slot Conflict check
+  // and could otherwise be used to the same monopolizing effect.
   @Patch(':id')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   update(
     @CurrentUser() user: User,
     @Param('id') id: string,

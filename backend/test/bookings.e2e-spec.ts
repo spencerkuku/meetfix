@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
@@ -7,6 +8,7 @@ import { PrismaService } from './../src/prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
+import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 
 interface BookingResponse {
   id: string;
@@ -66,7 +68,10 @@ describe('Bookings (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue(permissiveThrottlerGuard)
+      .compile();
 
     app = moduleFixture.createNestApplication();
     setApiPrefix(app);
@@ -892,5 +897,149 @@ describe('Bookings (e2e)', () => {
       const statuses = [firstRes.status, secondRes.status].sort();
       expect(statuses).toEqual([200, 409]);
     });
+  });
+
+  describe('Active Booking cap', () => {
+    it('rejects creating a Booking once the caller already holds the maximum number of active Bookings', async () => {
+      const capped = await tokenFor('capped-booker@school.edu.tw');
+      const capRoom = await prisma.room.create({
+        data: {
+          name: 'Cap Test Room',
+          location: '1F',
+          capacity: 4,
+          equipment: [],
+          requiresApproval: false,
+        },
+      });
+
+      // Seed the cap directly via Prisma rather than 200 sequential HTTP
+      // round-trips — the cap-boundary behavior under test is BookingsService
+      // reading this count, not how the rows got there.
+      const CAP = 200;
+      const seedStart = new Date('2032-01-01T00:00:00.000Z');
+      await prisma.booking.createMany({
+        data: Array.from({ length: CAP }, (_, i) => ({
+          roomId: capRoom.id,
+          userId: capped.userId,
+          title: `Cap fill ${i}`,
+          startTime: new Date(seedStart.getTime() + i * 60 * 60 * 1000),
+          endTime: new Date(
+            seedStart.getTime() + i * 60 * 60 * 1000 + 30 * 60 * 1000,
+          ),
+          status: 'CONFIRMED',
+        })),
+      });
+      const lastId = (
+        await prisma.booking.findFirstOrThrow({
+          where: { userId: capped.userId, title: `Cap fill ${CAP - 1}` },
+        })
+      ).id;
+
+      const overflowSlot = {
+        startTime: new Date(
+          seedStart.getTime() + CAP * 60 * 60 * 1000,
+        ).toISOString(),
+        endTime: new Date(
+          seedStart.getTime() + CAP * 60 * 60 * 1000 + 30 * 60 * 1000,
+        ).toISOString(),
+      };
+      await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${capped.token}`)
+        .send({ roomId: capRoom.id, title: 'Over the cap', ...overflowSlot })
+        .expect(400);
+
+      // Freeing one active Booking allows a new one to be created again.
+      await apiRequest(app)
+        .delete(`/bookings/${lastId}`)
+        .set('Authorization', `Bearer ${capped.token}`)
+        .expect(204);
+
+      await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${capped.token}`)
+        .send({
+          roomId: capRoom.id,
+          title: 'Back under the cap',
+          ...overflowSlot,
+        })
+        .expect(201);
+    });
+  });
+});
+
+// A fresh app instance per test, each with its own in-memory
+// ThrottlerStorage, so one test's requests never count toward another
+// test's budget — and with the real ThrottlerGuard (not stubbed out, as it
+// is for every other test in this file), so the actual creation-endpoint
+// rate limit can be exercised directly.
+describe('Booking rate limiting (e2e)', () => {
+  let app: INestApplication<App>;
+  let authService: AuthService;
+  let prisma: PrismaService;
+  let token: string;
+  let roomId: string;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
+    authService = moduleFixture.get(AuthService);
+    prisma = moduleFixture.get(PrismaService);
+    await app.init();
+
+    const { user } = await authService.loginWithGoogle({
+      googleSub: 'sub-throttle-booker@school.edu.tw',
+      email: 'throttle-booker@school.edu.tw',
+      name: 'throttle-booker@school.edu.tw',
+      hostedDomain: 'school.edu.tw',
+    });
+    const code = authService.createLoginCode(user.id);
+    ({ accessToken: token } = await authService.exchangeLoginCode(code));
+
+    const room = await prisma.room.create({
+      data: {
+        name: 'Throttle Test Room',
+        location: '1F',
+        capacity: 4,
+        equipment: [],
+        requiresApproval: false,
+      },
+    });
+    roomId = room.id;
+  });
+
+  afterEach(async () => {
+    await prisma.booking.deleteMany({ where: { roomId } });
+    await prisma.room.deleteMany({ where: { id: roomId } });
+    await prisma.account.deleteMany({});
+    await prisma.user.deleteMany({});
+    await app.close();
+  });
+
+  it('rejects a POST /bookings burst past the configured limit with 429', async () => {
+    let sawThrottled = false;
+    for (let i = 0; i < 30; i++) {
+      const start = new Date(Date.UTC(2031, 0, 1, i, 0, 0));
+      const end = new Date(Date.UTC(2031, 0, 1, i, 30, 0));
+      const res = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          roomId,
+          title: `Throttle burst ${i}`,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+        });
+      if (res.status === 429) {
+        sawThrottled = true;
+        break;
+      }
+      expect(res.status).toBe(201);
+    }
+    expect(sawThrottled).toBe(true);
   });
 });

@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
-  CanActivate,
   ConflictException,
   INestApplication,
   UnauthorizedException,
@@ -13,14 +12,7 @@ import { PrismaService } from './../src/prisma/prisma.service';
 import { GoogleProfile } from './../src/auth/google-profile.interface';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
-
-// Every test in this file but the dedicated "Rate limiting" block below
-// calls /auth/login or /auth/register many times in quick succession — far
-// more than the real 5-req/60s throttle allows. Stub the guard out for this
-// shared app instance so those tests exercise their own concerns, not the
-// throttle; the dedicated block below builds its own app instance with the
-// real ThrottlerGuard to test throttling itself.
-const permissiveThrottlerGuard: CanActivate = { canActivate: () => true };
+import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 
 // The full browser-redirect OAuth handshake can't be exercised without real
 // Google credentials, so this seam is adapted: AuthService.loginWithGoogle

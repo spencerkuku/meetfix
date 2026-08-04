@@ -13,10 +13,13 @@ import { AuditModule } from './audit/audit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Rate limit for /auth/login and /auth/register only (applied via
-    // ThrottlerGuard directly on those handlers, not globally) — see the
-    // security audit finding this closes: those endpoints previously had no
-    // throttling at any layer, making credential stuffing unbounded.
+    // Not bound globally — applied via ThrottlerGuard directly on individual
+    // handlers, each of which may override this 'default' limit with its
+    // own @Throttle() (see BookingsController, RepairsController). Started
+    // out covering only /auth/login and /auth/register (credential
+    // stuffing was previously unbounded at every layer); later extended to
+    // Booking/Repair Ticket creation for the same reason — see the security
+    // audit findings this closes.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
     PrismaModule,
     HealthModule,
