@@ -5,7 +5,8 @@ import { RepairStatus, RepairTicket } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { nextRepairStatus, revertRepairStatus, RepairStatusValue } from 'repair-visibility';
-import { CheckCircle, Image as ImageIcon, Info, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn } from 'lucide-react';
+import { exportRepairsCsv } from '../services/repairs';
+import { CheckCircle, Download, Image as ImageIcon, Info, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn } from 'lucide-react';
 
 // One badge style per status — shared everywhere so PENDING/IN_PROGRESS/
 // COMPLETED read consistently (previously IN_PROGRESS and COMPLETED shared
@@ -51,6 +52,25 @@ export const RepairManagement: React.FC = () => {
   const { success, error, showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED' | 'ALL'>('ACTIVE');
+
+  // Export controls — independent of activeTab/filteredRepairs, since the
+  // export always queries the backend directly rather than exporting
+  // whatever happens to be on screen.
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async (range?: { from: string; to: string }) => {
+    setExporting(true);
+    try {
+      await exportRepairsCsv(range);
+      success('報修單已匯出');
+    } catch {
+      error('匯出失敗，請稍後再試');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const filteredRepairs = repairs
     .filter(r => {
@@ -226,6 +246,49 @@ export const RepairManagement: React.FC = () => {
             {tab === 'ALL' ? '所有工單' : (tab === 'ACTIVE' ? '待處理/處理中' : '已結案紀錄')}
           </button>
         ))}
+      </div>
+
+      <div className="bg-white rounded-lg border shadow-sm p-4 flex flex-wrap items-end gap-3">
+        <div>
+          <label htmlFor="export-from" className="block text-xs font-medium text-slate-500 mb-1">起始日期</label>
+          <input
+            id="export-from"
+            type="date"
+            value={exportFrom}
+            max={exportTo || undefined}
+            onChange={(e) => setExportFrom(e.target.value)}
+            className="border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+          />
+        </div>
+        <div>
+          <label htmlFor="export-to" className="block text-xs font-medium text-slate-500 mb-1">結束日期</label>
+          <input
+            id="export-to"
+            type="date"
+            value={exportTo}
+            min={exportFrom || undefined}
+            onChange={(e) => setExportTo(e.target.value)}
+            className="border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={exporting || !exportFrom || !exportTo}
+          onClick={() => handleExport({ from: exportFrom, to: exportTo })}
+          className="flex items-center gap-1.5"
+        >
+          <Download size={14}/> 匯出區間
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={exporting}
+          onClick={() => handleExport()}
+          className="flex items-center gap-1.5"
+        >
+          <Download size={14}/> 匯出全部
+        </Button>
       </div>
 
       <div className="bg-white rounded-lg border shadow-sm overflow-hidden animate-fade-in">

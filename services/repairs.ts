@@ -115,6 +115,41 @@ export async function deleteRepairTicket(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete repair ticket');
 }
 
+// Extracts the filename from a Content-Disposition header, falling back to
+// a generic name if the header is missing or unparseable — the caller still
+// gets a working download either way.
+function filenameFromContentDisposition(header: string | null): string {
+  const match = header?.match(/filename\*=UTF-8''([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '報修單.csv';
+}
+
+// FACILITY_MANAGER/ADMIN-only bulk export. Uses fetch + blob rather than a
+// plain navigation/link, since auth here is a Bearer token (not a cookie)
+// and the browser needs the Authorization header attached to the request.
+export async function exportRepairsCsv(range?: {
+  from: string;
+  to: string;
+}): Promise<void> {
+  const query = range ? `?from=${range.from}&to=${range.to}` : '';
+  const res = await fetch(`${API_BASE_URL}/repairs/export${query}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to export repair tickets');
+
+  const blob = await res.blob();
+  const filename = filenameFromContentDisposition(
+    res.headers.get('Content-Disposition'),
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function fetchRepairCategories(): Promise<RepairCategory[]> {
   const res = await fetch(`${API_BASE_URL}/repair-categories`, {
     headers: authHeaders(),
