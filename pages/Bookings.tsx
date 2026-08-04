@@ -5,6 +5,7 @@ import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { BookingConflictError } from '../services/bookings';
+import { isActiveSlot, isEditable, isDeletable } from './booking-eligibility';
 import { ChevronLeft, ChevronRight, Plus, X, Users, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye, Monitor, MapPin, CheckCircle2, AlertCircle, AlignLeft } from 'lucide-react';
 
 // The day/week grid runs 8:00-20:00 in 30-minute increments — slot 0 is
@@ -94,16 +95,16 @@ export const Bookings: React.FC = () => {
   // Slot Conflict check, as opposed to displayedBookings below which is only
   // for what the calendar grid renders.
   const activeBookings = useMemo(
-    () => bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'PENDING_APPROVAL'),
+    () => bookings.filter(b => isActiveSlot(b.status)),
     [bookings]
   );
 
-  // Filtered Bookings for Calendar rendering (Exclude Rejected)
+  // Filtered Bookings for Calendar rendering — same Slot-holding rule as
+  // activeBookings above, further narrowed by the calendar's room filter.
   const displayedBookings = useMemo(() => {
-    const active = bookings.filter(b => b.status !== 'REJECTED');
-    if (filterRoomId === 'ALL') return active;
-    return active.filter(b => b.roomId === filterRoomId);
-  }, [bookings, filterRoomId]);
+    if (filterRoomId === 'ALL') return activeBookings;
+    return activeBookings.filter(b => b.roomId === filterRoomId);
+  }, [activeBookings, filterRoomId]);
 
   // My History Bookings
   const myBookings = useMemo(() => {
@@ -740,11 +741,8 @@ export const Bookings: React.FC = () => {
   // possibly-edited form fields — eligibility depends on whether the
   // Booking as it exists today has started, not on what the user is
   // currently proposing to change it to.
-  // Mirrors the History tab's canDelete rule (startTime still in the future) — any status.
-  const canDeleteEditingBooking = !!editingBooking && new Date(editingBooking.startTime) > new Date();
-  // Mirrors the backend's edit eligibility: future, and still CONFIRMED/PENDING_APPROVAL.
-  const canEditBooking = !!editingBooking && canDeleteEditingBooking &&
-      (editingBooking.status === 'CONFIRMED' || editingBooking.status === 'PENDING_APPROVAL');
+  const canDeleteEditingBooking = !!editingBooking && isDeletable(editingBooking);
+  const canEditBooking = !!editingBooking && isEditable(editingBooking);
   // Whether the form's fields should be editable right now — always true
   // when creating, and true when editing only if the Booking is still
   // eligible (see canEditBooking above).
@@ -866,8 +864,11 @@ export const Bookings: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {myBookings.map(booking => {
+                      // Not yet ended — distinct from isDeletable (below):
+                      // an in-progress Booking can still be viewed here,
+                      // just not deleted.
                       const isFuture = new Date(booking.endTime) > new Date();
-                      const canDelete = new Date(booking.startTime) > new Date();
+                      const canDelete = isDeletable(booking);
                       const statusMap = {
                           'CONFIRMED': { label: '已確認', color: 'bg-green-100 text-green-800' },
                           'PENDING_APPROVAL': { label: '待審核', color: 'bg-yellow-100 text-yellow-800' },
