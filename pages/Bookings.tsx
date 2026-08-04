@@ -597,7 +597,7 @@ export const Bookings: React.FC = () => {
       >
         <div className="grid min-h-full" style={{ gridTemplateColumns, gridTemplateRows, minWidth: gridMinWidth }}>
            <div
-             className="bg-gray-50 p-2 sm:p-4 border-b border-r text-xs font-bold text-slate-400 text-center uppercase sticky top-0 left-0 z-20"
+             className="bg-gray-50 p-2 sm:p-4 border-b border-r text-xs font-bold text-slate-400 text-center uppercase sticky top-0 left-0 z-40"
              style={{ gridRow: showRoomSubHeader ? 'span 2' : 'span 1' }}
            >
              時間
@@ -606,7 +606,7 @@ export const Bookings: React.FC = () => {
              <div
                key={i}
                style={{ gridColumn: `span ${columnsPerDay}` }}
-               className={`bg-gray-50 p-2 sm:p-4 border-b text-center border-r last:border-r-0 sticky top-0 z-10 ${d.toDateString() === new Date().toDateString() ? 'bg-blue-50' : ''}`}
+               className={`bg-gray-50 p-2 sm:p-4 border-b text-center border-r last:border-r-0 sticky top-0 z-30 ${d.toDateString() === new Date().toDateString() ? 'bg-blue-50' : ''}`}
              >
                <div className="font-bold text-slate-700">{['週日', '週一', '週二', '週三', '週四', '週五', '週六'][d.getDay()]}</div>
                <div className={`text-sm ${d.toDateString() === new Date().toDateString() ? 'text-blue-600' : 'text-slate-500'}`}>{d.getDate()}</div>
@@ -676,7 +676,7 @@ export const Bookings: React.FC = () => {
                         {/* RED TIME LINE */}
                         {isToday && isCurrentSlot && (
                           <div
-                              className="absolute left-0 w-full border-t-2 border-red-500 z-30 pointer-events-none"
+                              className="absolute left-0 w-full border-t-2 border-red-500 z-[25] pointer-events-none"
                               style={{ top: `${minutePct}%` }}
                           >
                                <div className="absolute -left-1 -top-1.5 w-2 h-2 bg-red-500 rounded-full"></div>
