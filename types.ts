@@ -98,7 +98,7 @@ export interface AutoApprovedDomain {
   createdAt: string;
 }
 
-export type AuditAction = 'ROLE_CHANGE' | 'BOOKING_APPROVAL' | 'ACCOUNT_APPROVAL' | 'REPAIR_STATUS_CHANGE' | 'AUTO_APPROVED_DOMAIN_CHANGE';
+export type AuditAction = 'ROLE_CHANGE' | 'BOOKING_APPROVAL' | 'ACCOUNT_APPROVAL' | 'REPAIR_STATUS_CHANGE' | 'AUTO_APPROVED_DOMAIN_CHANGE' | 'ACCOUNT_SUSPENSION' | 'ACCOUNT_REACTIVATION' | 'USER_DELETION';
 
 export interface AuditLogEntry {
   id: string;

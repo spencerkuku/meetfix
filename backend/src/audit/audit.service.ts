@@ -4,11 +4,20 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type PrismaClientOrTx = PrismaService | Prisma.TransactionClient;
 
+// `actor` is null once a User Deletion has removed the actor's row (FK
+// onDelete: SetNull) — fall back to the `actorName` snapshot taken at
+// deletion time (see AdminService.deleteUser) instead of crashing on a
+// null dereference. There's no equivalent email snapshot, so that field
+// goes blank for a deleted actor.
 function toAuditLogEntryResponse(
-  entry: AuditLogEntry & { actor: { name: string; email: string } },
+  entry: AuditLogEntry & { actor: { name: string; email: string } | null },
 ) {
-  const { actor, ...rest } = entry;
-  return { ...rest, actorName: actor.name, actorEmail: actor.email };
+  const { actor, actorName, ...rest } = entry;
+  return {
+    ...rest,
+    actorName: actor?.name ?? actorName ?? '已刪除使用者',
+    actorEmail: actor?.email ?? '',
+  };
 }
 
 export interface AuditEntry {

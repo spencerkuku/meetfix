@@ -264,6 +264,42 @@ describe('Audit Log (e2e)', () => {
     expect(entries[0].targetType).toBe('RepairTicket');
   });
 
+  it('keeps an entry readable, with an actorName snapshot, after the actor User is later deleted', async () => {
+    const actor = await tokenFor('audit-deleted-actor@school.edu.tw', Role.ROOM_MANAGER);
+    const requester = await tokenFor('audit-deleted-actor-req@school.edu.tw', Role.USER);
+    const created = await apiRequest(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${requester.token}`)
+      .send({
+        roomId,
+        title: '稽核測試會議（審核者將被刪除）',
+        startTime: '2027-02-01T02:00:00.000Z',
+        endTime: '2027-02-01T03:00:00.000Z',
+      })
+      .expect(201);
+    const bookingId = (created.body as { id: string }).id;
+
+    await apiRequest(app)
+      .patch(`/bookings/${bookingId}/approve`)
+      .set('Authorization', `Bearer ${actor.token}`)
+      .expect(200);
+
+    await apiRequest(app)
+      .delete(`/admin/users/${actor.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(204);
+
+    const res = await apiRequest(app)
+      .get('/audit-log')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const entry = (res.body as AuditLogEntryResponse[]).find(
+      (e) => e.action === 'BOOKING_APPROVAL' && e.targetId === bookingId,
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.actorName).toBe('audit-deleted-actor@school.edu.tw');
+  });
+
   it('ADMIN can read the accumulated Audit Log entries', async () => {
     const res = await apiRequest(app)
       .get('/audit-log')
