@@ -78,6 +78,21 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // Height of the sticky day-of-week header row, measured so the Room
+  // sub-header (per-column Room name, shown when multiple Rooms are
+  // displayed side by side) can stick right below it. Without this, the
+  // Room names scroll out of view with the rest of the grid and there's
+  // nothing left in a scrolled column to say which Room it belongs to.
+  const dayHeaderRef = useRef<HTMLDivElement>(null);
+  const [dayHeaderHeight, setDayHeaderHeight] = useState(0);
+  useEffect(() => {
+    const el = dayHeaderRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setDayHeaderHeight(entry.contentRect.height));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view, isMobile]);
+
   const isSingleDayMode = () => view === 'DAY' || (view === 'WEEK' && isMobile);
 
   // Drag Selection (Create) State
@@ -358,6 +373,7 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
            {weekDays.map((d, i) => (
              <div
                key={i}
+               ref={i === 0 ? dayHeaderRef : undefined}
                style={{ gridColumn: `span ${columnsPerDay}` }}
                className={`bg-gray-50 p-2 sm:p-4 border-b text-center border-r last:border-r-0 sticky top-0 z-30 ${d.toDateString() === new Date().toDateString() ? 'bg-blue-50' : ''}`}
              >
@@ -369,7 +385,11 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
            {showRoomSubHeader && weekDays.map((d, i) => (
              <React.Fragment key={`sub-${i}`}>
                {visibleRooms.map(room => (
-                 <div key={room.id} className="bg-gray-50 p-1 border-b border-r last:border-r-0 text-center">
+                 <div
+                   key={room.id}
+                   style={{ top: dayHeaderHeight }}
+                   className="bg-gray-50 p-1 border-b border-r last:border-r-0 text-center sticky z-30"
+                 >
                    <div className="text-[10px] font-semibold text-slate-500 truncate" title={room.name}>{room.name}</div>
                  </div>
                ))}
