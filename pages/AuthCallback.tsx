@@ -32,6 +32,16 @@ export const AuthCallback: React.FC = () => {
       return;
     }
 
+    // A login failure (e.g. a suspended Account, or a Google account
+    // outside the school domain) redirects here with `error` instead of
+    // `code` — see AuthController.googleCallback.
+    const loginError = searchParams.get('error');
+    if (loginError !== null) {
+      error(loginError);
+      navigate('/', { replace: true });
+      return;
+    }
+
     const code = searchParams.get('code');
     if (!code) {
       navigate('/', { replace: true });

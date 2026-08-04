@@ -25,6 +25,11 @@ const LOGIN_CODE_TTL_MS = 60_000;
 const PASSWORD_HASH_ROUNDS = 10;
 const MIN_PASSWORD_LENGTH = 8;
 const GOOGLE_LINK_STATE_PURPOSE = 'google-account-link';
+// Shared between loginWithPassword and loginWithGoogle so both login
+// methods give a User the same wording for the same underlying Account
+// Status, rather than drifting apart over time.
+const ACCOUNT_SUSPENDED_MESSAGE = '此帳號已被停權，請洽管理員';
+const ACCOUNT_PENDING_MESSAGE = '此帳號尚待管理員審核';
 // A valid bcrypt hash of an arbitrary, unused password — never matches a
 // real login attempt, and exists solely so loginWithPassword always pays
 // bcrypt's cost, whether or not the requested email has an Account. See
@@ -78,13 +83,21 @@ export class AuthService {
     const schoolDomain = this.config.get<string>('SCHOOL_GOOGLE_DOMAIN');
     if (!schoolDomain || !isSchoolWorkspaceDomain(profile.hostedDomain, schoolDomain)) {
       throw new UnauthorizedException(
-        'Google account is not part of the school Workspace domain',
+        '此 Google 帳號不屬於學校網域，無法登入',
       );
     }
 
     const existingAccount = await this.prisma.account.findUnique({
       where: { googleSub: profile.googleSub },
     });
+
+    // A brand-new Google-provisioned Account (below) is always ACTIVE — only
+    // an existing Account can have been suspended by an Admin since. Google
+    // Accounts are never PENDING (see CONTEXT.md), so SUSPENDED is the only
+    // non-ACTIVE status possible here.
+    if (existingAccount?.status === AccountStatus.SUSPENDED) {
+      throw new UnauthorizedException(ACCOUNT_SUSPENDED_MESSAGE);
+    }
 
     let user: User;
     if (existingAccount) {
@@ -325,10 +338,11 @@ export class AuthService {
     if (!user || !account || !valid) {
       throw new UnauthorizedException('Invalid email or password');
     }
+    if (account.status === AccountStatus.SUSPENDED) {
+      throw new UnauthorizedException(ACCOUNT_SUSPENDED_MESSAGE);
+    }
     if (account.status !== AccountStatus.ACTIVE) {
-      throw new UnauthorizedException(
-        'This account is pending Admin approval',
-      );
+      throw new UnauthorizedException(ACCOUNT_PENDING_MESSAGE);
     }
 
     return { accessToken: await this.signToken(user) };

@@ -54,19 +54,26 @@ export class AuthController {
         await this.authService.linkGoogleAccount(state, req.user);
         return res.redirect(`${frontendUrl}/#/auth/callback?linked=1`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to link Google account';
+        const message = err instanceof Error ? err.message : '連結 Google 帳號失敗';
         return res.redirect(
           `${frontendUrl}/#/auth/callback?linked=0&reason=${encodeURIComponent(message)}`,
         );
       }
     }
 
-    const { user } = await this.authService.loginWithGoogle(req.user);
-    // Hand the browser a short-lived, single-use code rather than the JWT
-    // itself, so the access token never appears in a redirect URL or
-    // server access log — the front end exchanges it via POST /auth/exchange.
-    const code = this.authService.createLoginCode(user.id);
-    res.redirect(`${frontendUrl}/#/auth/callback?code=${code}`);
+    try {
+      const { user } = await this.authService.loginWithGoogle(req.user);
+      // Hand the browser a short-lived, single-use code rather than the JWT
+      // itself, so the access token never appears in a redirect URL or
+      // server access log — the front end exchanges it via POST /auth/exchange.
+      const code = this.authService.createLoginCode(user.id);
+      res.redirect(`${frontendUrl}/#/auth/callback?code=${code}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '登入失敗，請稍後再試';
+      res.redirect(
+        `${frontendUrl}/#/auth/callback?error=${encodeURIComponent(message)}`,
+      );
+    }
   }
 
   // Requires an existing session (JwtAuthGuard) — Google account linking can

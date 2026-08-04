@@ -90,10 +90,26 @@ describe('Auth (e2e)', () => {
   it('rejects a Google account outside the school Workspace domain', async () => {
     await expect(
       authService.loginWithGoogle(schoolProfile({ hostedDomain: 'gmail.com' })),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toThrow('此 Google 帳號不屬於學校網域，無法登入');
 
     const userCount = await prisma.user.count();
     expect(userCount).toBe(0);
+  });
+
+  it('rejects login for a SUSPENDED Google-linked account before issuing a session', async () => {
+    const { user } = await authService.loginWithGoogle(
+      schoolProfile({ email: 'suspended-google@school.edu.tw', googleSub: 'google-sub-suspended' }),
+    );
+    await prisma.account.update({
+      where: { userId: user.id },
+      data: { status: 'SUSPENDED' },
+    });
+
+    await expect(
+      authService.loginWithGoogle(
+        schoolProfile({ email: 'suspended-google@school.edu.tw', googleSub: 'google-sub-suspended' }),
+      ),
+    ).rejects.toThrow('此帳號已被停權，請洽管理員');
   });
 
   it('accepts a Google account under a subdomain of the school Workspace domain', async () => {
@@ -664,7 +680,31 @@ describe('Auth (e2e)', () => {
         .post('/auth/login')
         .send({ email: 'pending@unknown.example.com', password: 'password123' })
         .expect(401);
-      expect((res.body as { message: string }).message).toMatch(/pending/i);
+      expect((res.body as { message: string }).message).toBe('此帳號尚待管理員審核');
+    });
+
+    it('rejects login for a SUSPENDED account with a distinct error from PENDING', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'suspended.example.com' },
+      });
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'suspended-login@suspended.example.com',
+          name: '已停權使用者',
+          password: 'password123',
+        })
+        .expect(201);
+      await prisma.account.update({
+        where: { userId: (await prisma.user.findUniqueOrThrow({ where: { email: 'suspended-login@suspended.example.com' } })).id },
+        data: { status: 'SUSPENDED' },
+      });
+
+      const res = await apiRequest(app)
+        .post('/auth/login')
+        .send({ email: 'suspended-login@suspended.example.com', password: 'password123' })
+        .expect(401);
+      expect((res.body as { message: string }).message).toBe('此帳號已被停權，請洽管理員');
     });
 
     it('rejects login with a wrong password', async () => {
