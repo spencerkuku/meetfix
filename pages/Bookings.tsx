@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
+import { useRoomsData } from '../state/rooms';
+import { useBookingsData } from '../state/bookings';
 import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
@@ -10,7 +12,9 @@ import { BookingFormModal, BookingFormTarget } from './BookingFormModal';
 import { ChevronLeft, ChevronRight, Plus, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye } from 'lucide-react';
 
 export const Bookings: React.FC = () => {
-  const { rooms, bookings, addBooking, updateBooking, deleteBooking, currentUser } = useData();
+  const { currentUser } = useAuthData();
+  const { rooms } = useRoomsData();
+  const { bookings, addBooking, updateBooking, deleteBooking } = useBookingsData();
   const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'HISTORY'>('CALENDAR');
   const [view, setView] = useState<CalendarViewType>('WEEK');

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { useData } from '../App';
+import { useRepairsData } from '../state/repairs';
 import { RepairStatus, RepairTicket } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
@@ -47,7 +47,7 @@ type PendingRevert = {
 };
 
 export const RepairManagement: React.FC = () => {
-  const { repairs, updateRepair } = useData();
+  const { repairs, updateRepair } = useRepairsData();
   const { success, error, showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED' | 'ALL'>('ACTIVE');

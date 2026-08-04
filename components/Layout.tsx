@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
 import { UserRole } from '../types';
 import { getGoogleLinkUrl, getToken, changePassword } from '../services/auth';
 import { useToast } from './Toast';
@@ -29,7 +29,7 @@ import { Avatar } from './Avatar';
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, logout } = useData();
+  const { currentUser, logout } = useAuthData();
   const location = useLocation();
   const navigate = useNavigate();
   const { error: showError, success: showSuccess } = useToast();

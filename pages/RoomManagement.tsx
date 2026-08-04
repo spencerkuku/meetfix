@@ -1,13 +1,13 @@
 
 import React, { useState } from 'react';
-import { useData } from '../App';
+import { useRoomsData } from '../state/rooms';
 import { DoorOpen, Users, Monitor, Plus, Trash2, X, Image as ImageIcon, Upload, CheckSquare, Square, Edit } from 'lucide-react';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { Room } from '../types';
 
 export const RoomManagement: React.FC = () => {
-  const { rooms, addRoom, updateRoom, removeRoom } = useData();
+  const { rooms, addRoom, updateRoom, removeRoom } = useRoomsData();
   const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);

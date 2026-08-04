@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
 import { UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { Calendar } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { loginWithGoogle, loginWithPassword, currentUser, authLoading } = useData();
+  const { loginWithGoogle, loginWithPassword, currentUser, authLoading } = useAuthData();
   const { error } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');

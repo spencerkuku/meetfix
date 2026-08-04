@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { UserPlus } from 'lucide-react';
 
 export const Register: React.FC = () => {
-  const { registerWithPassword } = useData();
+  const { registerWithPassword } = useAuthData();
   const { success, error } = useToast();
   const navigate = useNavigate();
   const [name, setName] = useState('');

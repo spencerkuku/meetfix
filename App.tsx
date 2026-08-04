@@ -1,7 +1,6 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { User, AdminUser, AccountStatus, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain, AuditLogEntry } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -15,305 +14,53 @@ import { AuditLog } from './pages/AuditLog';
 import { RoomManagement } from './pages/RoomManagement';
 import { Approvals } from './pages/Approvals';
 import { ToastProvider } from './components/Toast';
-import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, exchangeLoginCode, registerWithPassword as registerWithPasswordApi, loginWithPassword as loginWithPasswordApi } from './services/auth';
-import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
-import { fetchBookings, createBooking, updateBooking as updateBookingApi, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput, UpdateBookingInput } from './services/bookings';
-import { fetchRepairs, createRepairTicket, updateRepairTicket, updateRepairContent, deleteRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput, UpdateRepairContentInput } from './services/repairs';
-import { fetchUsers, updateUserRole as updateUserRoleApi, updateUserStatus as updateUserStatusApi, deleteUser as deleteUserApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
-import { fetchAuditLog } from './services/audit';
+import { AuthProvider } from './state/auth';
+import { RoomsProvider } from './state/rooms';
+import { BookingsProvider } from './state/bookings';
+import { RepairsProvider } from './state/repairs';
+import { AdminProvider } from './state/admin';
 
-// --- Context ---
-
-interface DataContextType {
-  currentUser: User | null;
-  rooms: Room[];
-  bookings: Booking[];
-  repairs: RepairTicket[];
-  repairCategories: RepairCategory[];
-  authLoading: boolean;
-  loginWithGoogle: () => void;
-  completeGoogleLogin: (code: string) => Promise<void>;
-  refreshCurrentUser: () => Promise<void>;
-  registerWithPassword: (email: string, name: string, password: string) => Promise<'ACTIVE' | 'PENDING'>;
-  loginWithPassword: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  addBooking: (input: CreateBookingInput) => Promise<void>;
-  updateBooking: (id: string, input: UpdateBookingInput) => Promise<void>;
-  deleteBooking: (id: string) => Promise<void>;
-  approveBooking: (id: string) => Promise<void>;
-  rejectBooking: (id: string) => Promise<void>;
-  addRepair: (input: RepairTicketFormInput, photo?: File) => Promise<void>;
-  updateRepair: (id: string, updates: UpdateRepairTicketInput) => Promise<void>;
-  editRepairContent: (id: string, input: UpdateRepairContentInput, photo?: File) => Promise<void>;
-  deleteRepair: (id: string) => Promise<void>;
-  // Admin-only: real User/Account administration (ticket #4). `users` and
-  // `pendingAccounts`/`autoApprovedDomains` are only fetched for an ADMIN
-  // currentUser — see the effect below.
-  users: AdminUser[];
-  updateUserRole: (userId: string, role: UserRole) => Promise<void>;
-  updateUserStatus: (userId: string, status: AccountStatus) => Promise<void>;
-  deleteUser: (userId: string) => Promise<void>;
-  pendingAccounts: PendingAccount[];
-  approveAccount: (accountId: string, role: UserRole) => Promise<void>;
-  autoApprovedDomains: AutoApprovedDomain[];
-  addAutoApprovedDomain: (domain: string, allowSubdomains?: boolean) => Promise<void>;
-  updateAutoApprovedDomain: (id: string, allowSubdomains: boolean) => Promise<void>;
-  removeAutoApprovedDomain: (id: string) => Promise<void>;
-  auditLog: AuditLogEntry[];
-  addRepairCategory: (name: string) => Promise<void>;
-  removeRepairCategory: (id: string) => Promise<void>;
-  addRoom: (input: RoomFormInput, photo?: File) => Promise<void>;
-  updateRoom: (id: string, input: Partial<RoomFormInput>, photo?: File) => Promise<void>;
-  removeRoom: (id: string) => Promise<void>;
-}
-
-const DataContext = createContext<DataContextType | undefined>(undefined);
-
-export const useData = () => {
-  const context = useContext(DataContext);
-  if (!context) throw new Error('useData must be used within a DataProvider');
-  return context;
-};
-
-const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [repairs, setRepairs] = useState<RepairTicket[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [repairCategories, setRepairCategories] = useState<RepairCategory[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
-  const [autoApprovedDomains, setAutoApprovedDomains] = useState<AutoApprovedDomain[]>([]);
-  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
-
-  useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      setAuthLoading(false);
-      return;
-    }
-    fetchCurrentUser(token).then(user => {
-      if (!user) clearToken();
-      setCurrentUser(user);
-      setAuthLoading(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!currentUser) {
-      setRooms([]);
-      setBookings([]);
-      setRepairs([]);
-      setRepairCategories([]);
-      return;
-    }
-    fetchRooms().then(setRooms).catch(() => setRooms([]));
-    fetchBookings().then(setBookings).catch(() => setBookings([]));
-    fetchRepairs().then(setRepairs).catch(() => setRepairs([]));
-    fetchRepairCategories().then(setRepairCategories).catch(() => setRepairCategories([]));
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser || currentUser.role !== UserRole.ADMIN) {
-      setUsers([]);
-      setPendingAccounts([]);
-      setAutoApprovedDomains([]);
-      setAuditLog([]);
-      return;
-    }
-    fetchUsers().then(setUsers).catch(() => setUsers([]));
-    fetchPendingAccounts().then(setPendingAccounts).catch(() => setPendingAccounts([]));
-    fetchAutoApprovedDomains().then(setAutoApprovedDomains).catch(() => setAutoApprovedDomains([]));
-    fetchAuditLog().then(setAuditLog).catch(() => setAuditLog([]));
-  }, [currentUser]);
-
-  const loginWithGoogle = () => {
-    window.location.href = googleLoginUrl();
-  };
-
-  const completeGoogleLogin = async (code: string) => {
-    const token = await exchangeLoginCode(code);
-    if (!token) return;
-    setToken(token);
-    const user = await fetchCurrentUser(token);
-    setCurrentUser(user);
-  };
-
-  // Re-fetches /auth/me against the existing session — used after linking a
-  // Google account, so the sidebar/profile reflect the new googleLinked
-  // status without requiring a fresh login.
-  const refreshCurrentUser = async () => {
-    const token = getToken();
-    if (!token) return;
-    const user = await fetchCurrentUser(token);
-    setCurrentUser(user);
-  };
-
-  const registerWithPassword = (email: string, name: string, password: string) => {
-    return registerWithPasswordApi(email, name, password);
-  };
-
-  const loginWithPassword = async (email: string, password: string) => {
-    const token = await loginWithPasswordApi(email, password);
-    setToken(token);
-    const user = await fetchCurrentUser(token);
-    setCurrentUser(user);
-  };
-
-  const logout = () => {
-    clearToken();
-    setCurrentUser(null);
-  };
-
-  const addBooking = async (input: CreateBookingInput) => {
-    const booking = await createBooking(input);
-    setBookings(prev => [...prev, booking]);
-  };
-
-  const updateBooking = async (id: string, input: UpdateBookingInput) => {
-    const booking = await updateBookingApi(id, input);
-    setBookings(prev => prev.map(b => b.id === id ? booking : b));
-  };
-
-  const deleteBooking = async (id: string) => {
-    await deleteBookingApi(id);
-    setBookings(prev => prev.filter(b => b.id !== id));
-  };
-
-  const approveBooking = async (id: string) => {
-    const booking = await approveBookingApi(id);
-    setBookings(prev => prev.map(b => b.id === id ? booking : b));
-  };
-
-  const rejectBooking = async (id: string) => {
-    const booking = await rejectBookingApi(id);
-    setBookings(prev => prev.map(b => b.id === id ? booking : b));
-  };
-
-  const addRepair = async (input: RepairTicketFormInput, photo?: File) => {
-    const ticket = await createRepairTicket(input, photo);
-    setRepairs(prev => [ticket, ...prev]);
-  };
-
-  const updateRepair = async (id: string, updates: UpdateRepairTicketInput) => {
-    const ticket = await updateRepairTicket(id, updates);
-    setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
-  };
-
-  const editRepairContent = async (id: string, input: UpdateRepairContentInput, photo?: File) => {
-    const ticket = await updateRepairContent(id, input, photo);
-    setRepairs(prev => prev.map(r => r.id === id ? ticket : r));
-  };
-
-  const deleteRepair = async (id: string) => {
-    await deleteRepairTicket(id);
-    setRepairs(prev => prev.filter(r => r.id !== id));
-  };
-
-  const updateUserRole = async (userId: string, role: UserRole) => {
-    const user = await updateUserRoleApi(userId, role);
-    setUsers(prev => prev.map(u => u.id === userId ? user : u));
-  };
-
-  const updateUserStatus = async (userId: string, status: AccountStatus) => {
-    const user = await updateUserStatusApi(userId, status);
-    setUsers(prev => prev.map(u => u.id === userId ? user : u));
-  };
-
-  const deleteUser = async (userId: string) => {
-    await deleteUserApi(userId);
-    setUsers(prev => prev.filter(u => u.id !== userId));
-  };
-
-  const approveAccount = async (accountId: string, role: UserRole) => {
-    await approveAccountApi(accountId, role);
-    setPendingAccounts(prev => prev.filter(a => a.id !== accountId));
-    setUsers(await fetchUsers());
-  };
-
-  const addAutoApprovedDomain = async (domain: string, allowSubdomains = false) => {
-    const created = await addAutoApprovedDomainApi(domain, allowSubdomains);
-    setAutoApprovedDomains(prev => [...prev, created]);
-  };
-
-  const updateAutoApprovedDomain = async (id: string, allowSubdomains: boolean) => {
-    const updated = await updateAutoApprovedDomainApi(id, allowSubdomains);
-    setAutoApprovedDomains(prev => prev.map(d => d.id === id ? updated : d));
-  };
-
-  const removeAutoApprovedDomain = async (id: string) => {
-    await removeAutoApprovedDomainApi(id);
-    setAutoApprovedDomains(prev => prev.filter(d => d.id !== id));
-  };
-
-  const addRepairCategory = async (name: string) => {
-    const category = await createRepairCategory(name);
-    setRepairCategories(prev => [...prev, category]);
-  };
-
-  const removeRepairCategory = async (id: string) => {
-    await deleteRepairCategory(id);
-    setRepairCategories(prev => prev.filter(c => c.id !== id));
-  };
-
-  const addRoom = async (input: RoomFormInput, photo?: File) => {
-    const room = await createRoom(input, photo);
-    setRooms(prev => [...prev, room]);
-  };
-
-  const updateRoom = async (id: string, input: Partial<RoomFormInput>, photo?: File) => {
-    const room = await updateRoomApi(id, input, photo);
-    setRooms(prev => prev.map(r => r.id === id ? room : r));
-  };
-
-  const removeRoom = async (id: string) => {
-    await deleteRoomApi(id);
-    setRooms(prev => prev.filter(r => r.id !== id));
-  };
-
-  return (
-    <DataContext.Provider value={{
-      currentUser, rooms, bookings, repairs, repairCategories, authLoading,
-      loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
-      addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking,
-      addRepair, updateRepair, editRepairContent, deleteRepair,
-      addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
-      users, updateUserRole, updateUserStatus, deleteUser, pendingAccounts, approveAccount,
-      autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain, auditLog
-    }}>
-      {children}
-    </DataContext.Provider>
-  );
-};
-
+// Each domain owns its own Provider (state/auth.tsx, rooms.tsx,
+// bookings.tsx, repairs.tsx, admin.tsx) instead of one flat DataContext —
+// a page imports only the domain hook(s) it actually uses (useAuthData,
+// useRoomsData, useBookingsData, useRepairsData, useAdminData). Rooms/
+// Bookings/Repairs/Admin all read `currentUser` from AuthProvider to gate
+// their own fetch, so AuthProvider must wrap them.
 export const App: React.FC = () => {
   return (
     <ToastProvider>
-      <DataProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/*" element={
-              <Layout>
-                <Routes>
-                  <Route path="/bookings" element={<Bookings />} />
-                  <Route path="/approvals" element={<Approvals />} />
-                  <Route path="/repairs" element={<Repairs />} />
-                  <Route path="/repair-management" element={<RepairManagement />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/admin" element={<Admin />} />
-                  <Route path="/audit-log" element={<AuditLog />} />
-                  <Route path="/rooms" element={<RoomManagement />} />
-                  <Route path="*" element={<Navigate to="/bookings" replace />} />
-                </Routes>
-              </Layout>
-            } />
-          </Routes>
-        </HashRouter>
-      </DataProvider>
+      <AuthProvider>
+        <RoomsProvider>
+          <BookingsProvider>
+            <RepairsProvider>
+              <AdminProvider>
+                <HashRouter>
+                  <Routes>
+                    <Route path="/" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/auth/callback" element={<AuthCallback />} />
+                    <Route path="/*" element={
+                      <Layout>
+                        <Routes>
+                          <Route path="/bookings" element={<Bookings />} />
+                          <Route path="/approvals" element={<Approvals />} />
+                          <Route path="/repairs" element={<Repairs />} />
+                          <Route path="/repair-management" element={<RepairManagement />} />
+                          <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/admin" element={<Admin />} />
+                          <Route path="/audit-log" element={<AuditLog />} />
+                          <Route path="/rooms" element={<RoomManagement />} />
+                          <Route path="*" element={<Navigate to="/bookings" replace />} />
+                        </Routes>
+                      </Layout>
+                    } />
+                  </Routes>
+                </HashRouter>
+              </AdminProvider>
+            </RepairsProvider>
+          </BookingsProvider>
+        </RoomsProvider>
+      </AuthProvider>
     </ToastProvider>
   );
 };

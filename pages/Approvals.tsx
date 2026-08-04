@@ -1,12 +1,14 @@
 
 import React, { useMemo, useState } from 'react';
-import { useData } from '../App';
+import { useBookingsData } from '../state/bookings';
+import { useRoomsData } from '../state/rooms';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { CheckCircle2, XCircle, Clock, User, Calendar, Monitor } from 'lucide-react';
 
 export const Approvals: React.FC = () => {
-  const { bookings, rooms, approveBooking, rejectBooking } = useData();
+  const { bookings, approveBooking, rejectBooking } = useBookingsData();
+  const { rooms } = useRoomsData();
   const { success, info, error } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 

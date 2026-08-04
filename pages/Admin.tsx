@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
+import { useAdminData } from '../state/admin';
+import { useRepairsData } from '../state/repairs';
 import { AccountStatus, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { Avatar } from '../components/Avatar';
@@ -8,10 +10,12 @@ import { fetchUsers } from '../services/admin';
 import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe, KeyRound, Ban } from 'lucide-react';
 
 export const Admin: React.FC = () => {
+  const { currentUser } = useAuthData();
   const {
-    currentUser, users, updateUserRole, updateUserStatus, deleteUser, repairCategories, addRepairCategory, removeRepairCategory,
+    users, updateUserRole, updateUserStatus, deleteUser,
     pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
-  } = useData();
+  } = useAdminData();
+  const { repairCategories, addRepairCategory, removeRepairCategory } = useRepairsData();
   const { success, error } = useToast();
   const [newCategory, setNewCategory] = useState('');
   const [newDomain, setNewDomain] = useState('');

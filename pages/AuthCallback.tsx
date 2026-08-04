@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
 import { useToast } from '../components/Toast';
 
 export const AuthCallback: React.FC = () => {
-  const { completeGoogleLogin, refreshCurrentUser } = useData();
+  const { completeGoogleLogin, refreshCurrentUser } = useAuthData();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { success, error } = useToast();

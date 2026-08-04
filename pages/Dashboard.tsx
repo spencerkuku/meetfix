@@ -1,13 +1,19 @@
 
 import React, { useMemo } from 'react';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
+import { useBookingsData } from '../state/bookings';
+import { useRepairsData } from '../state/repairs';
+import { useRoomsData } from '../state/rooms';
 import { UserRole } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
 import { Button } from '../components/Button';
 import { Download, TrendingUp, AlertCircle, CheckCircle2, Clock, Users } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { bookings, repairs, rooms, currentUser } = useData();
+  const { currentUser } = useAuthData();
+  const { bookings } = useBookingsData();
+  const { repairs } = useRepairsData();
+  const { rooms } = useRoomsData();
 
   // Role Logic
   const showRepairStats = currentUser && [UserRole.ADMIN, UserRole.FACILITY_MANAGER].includes(currentUser.role);

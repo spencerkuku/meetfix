@@ -1,5 +1,5 @@
 import React from 'react';
-import { useData } from '../App';
+import { useAdminData } from '../state/admin';
 import { AuditAction } from '../types';
 import { History } from 'lucide-react';
 
@@ -15,7 +15,7 @@ const actionLabels: Record<AuditAction, string> = {
 };
 
 export const AuditLog: React.FC = () => {
-  const { auditLog } = useData();
+  const { auditLog } = useAdminData();
 
   return (
     <div className="space-y-6">

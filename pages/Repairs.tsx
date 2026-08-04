@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { useData } from '../App';
+import { useAuthData } from '../state/auth';
+import { useRepairsData } from '../state/repairs';
 import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
@@ -8,7 +9,8 @@ import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, Tag, MapPin, P
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
 
 export const Repairs: React.FC = () => {
-  const { repairs, addRepair, editRepairContent, deleteRepair, currentUser, repairCategories } = useData();
+  const { currentUser } = useAuthData();
+  const { repairs, addRepair, editRepairContent, deleteRepair, repairCategories } = useRepairsData();
   const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
