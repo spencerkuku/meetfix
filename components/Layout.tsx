@@ -25,11 +25,12 @@ import {
 } from 'lucide-react';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
+import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
 
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, logout } = useAuthData();
+  const { currentUser, logout, updateProfile } = useAuthData();
   const location = useLocation();
   const navigate = useNavigate();
   const { error: showError, success: showSuccess } = useToast();
@@ -52,6 +53,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // 報修人資料 (see pages/Repairs.tsx) — editable here independent of
+  // submitting a Repair Ticket, saved via AuthProvider.updateProfile.
+  const [profileClass, setProfileClass] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+
   const isActive = (path: string) => location.pathname === path;
   
   const navItemClass = (path: string, isCollapsed: boolean) => `
@@ -70,7 +77,25 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     setCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
+    setProfileClass(currentUser.class || '');
+    setProfilePhone(currentUser.phone || '');
     setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!isReporterInfoComplete(profileClass, profilePhone)) {
+      showError(REPORTER_INFO_REQUIRED_MESSAGE);
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await updateProfile(profileClass, profilePhone);
+      showSuccess('個人資料已更新');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '更新個人資料失敗，請稍後再試');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -350,6 +375,41 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <Avatar avatarUrl={currentUser.avatarUrl} name={currentUser.name} size={48} className="w-24 h-24 rounded-full bg-slate-100 ring-4 ring-slate-50 text-slate-400" />
                   <p className="font-semibold text-slate-800">{currentUser.name}</p>
                   <p className="text-xs text-slate-500">{currentUser.email}</p>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <p className="text-sm font-medium text-slate-700">報修人資料</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">班級 / 部門 <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      value={profileClass}
+                      onChange={e => setProfileClass(e.target.value)}
+                      placeholder="例: 資訊三甲"
+                      className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">聯絡電話 <span className="text-red-500">*</span></label>
+                    <input
+                      type="tel"
+                      required
+                      value={profilePhone}
+                      onChange={e => setProfilePhone(e.target.value)}
+                      placeholder="09xx-xxx-xxx"
+                      className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full bg-white"
+                    disabled={savingProfile || !isReporterInfoComplete(profileClass, profilePhone)}
+                    onClick={handleSaveProfile}
+                  >
+                    {savingProfile ? '儲存中…' : '儲存報修人資料'}
+                  </Button>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">

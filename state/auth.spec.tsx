@@ -13,6 +13,7 @@ vi.mock('../services/auth', () => ({
   fetchCurrentUser: vi.fn(),
   registerWithPassword: vi.fn(),
   loginWithPassword: vi.fn(),
+  updateProfile: vi.fn(),
 }));
 
 import * as authService from '../services/auth';
@@ -79,5 +80,54 @@ describe('AuthProvider / useAuthData', () => {
 
     expect(authService.clearToken).toHaveBeenCalled();
     expect(result.current.currentUser).toBeNull();
+  });
+
+  it('fetches class/phone through fetchCurrentUser once saved', async () => {
+    vi.mocked(authService.getToken).mockReturnValue('existing-token');
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue({
+      ...user,
+      class: '資訊三甲',
+      phone: '0912-345-678',
+    });
+    const { result } = renderHook(() => useAuthData(), { wrapper });
+
+    await waitFor(() => expect(result.current.authLoading).toBe(false));
+    expect(result.current.currentUser?.class).toBe('資訊三甲');
+    expect(result.current.currentUser?.phone).toBe('0912-345-678');
+  });
+
+  it('updateProfile saves class/phone and updates currentUser from the response', async () => {
+    vi.mocked(authService.getToken).mockReturnValue('existing-token');
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(user);
+    vi.mocked(authService.updateProfile).mockResolvedValue({
+      class: '資訊三甲',
+      phone: '0912-345-678',
+    });
+    const { result } = renderHook(() => useAuthData(), { wrapper });
+    await waitFor(() => expect(result.current.currentUser).toEqual(user));
+
+    await act(async () => {
+      await result.current.updateProfile('資訊三甲', '0912-345-678');
+    });
+
+    expect(authService.updateProfile).toHaveBeenCalledWith(
+      'existing-token',
+      '資訊三甲',
+      '0912-345-678',
+    );
+    expect(result.current.currentUser?.class).toBe('資訊三甲');
+    expect(result.current.currentUser?.phone).toBe('0912-345-678');
+  });
+
+  it('updateProfile does nothing when there is no stored token', async () => {
+    vi.mocked(authService.getToken).mockReturnValue(null);
+    const { result } = renderHook(() => useAuthData(), { wrapper });
+    await waitFor(() => expect(result.current.authLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.updateProfile('資訊三甲', '0912-345-678');
+    });
+
+    expect(authService.updateProfile).not.toHaveBeenCalled();
   });
 });

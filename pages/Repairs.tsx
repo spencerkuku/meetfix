@@ -7,9 +7,10 @@ import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, Tag, MapPin, Pencil, Trash2, ZoomIn, Info, User } from 'lucide-react';
 import { canSeeReporterDetails, maskName } from 'repair-visibility';
+import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
 
 export const Repairs: React.FC = () => {
-  const { currentUser } = useAuthData();
+  const { currentUser, refreshCurrentUser } = useAuthData();
   const { repairs, addRepair, editRepairContent, deleteRepair, repairCategories } = useRepairsData();
   const { success, error } = useToast();
   const [showModal, setShowModal] = useState(false);
@@ -127,6 +128,11 @@ export const Repairs: React.FC = () => {
     e.preventDefault();
     if (!currentUser) return;
 
+    if (!editingTicketId && !isReporterInfoComplete(userClass, userPhone)) {
+      error(REPORTER_INFO_REQUIRED_MESSAGE);
+      return;
+    }
+
     setSubmitting(true);
     try {
       if (editingTicketId) {
@@ -142,11 +148,15 @@ export const Repairs: React.FC = () => {
             location: locationText,
             category,
             description,
-            userClass: userClass || undefined,
-            userPhone: userPhone || undefined,
+            userClass,
+            userPhone,
           },
           photoFile ?? undefined,
         );
+        // The backend saves userClass/userPhone onto the User's profile on
+        // submission (see RepairsService.create) — refresh so the next
+        // ticket's pre-fill (and Account Settings) reflect it immediately.
+        await refreshCurrentUser();
         success("報修單已送出！");
       }
       closeModal();
@@ -511,8 +521,10 @@ export const Repairs: React.FC = () => {
                  </div>
               </div>
 
-              {/* Reporter Info — only collected at submission time; not part
-                  of what an edit can change. */}
+              {/* Reporter Info — collected at submission time. Pre-filled from
+                  the User's profile (Account Settings) when available; any
+                  edit here is saved back to the profile too, so it carries
+                  forward to the next Repair Ticket. */}
               {!editingTicketId && (
                 <div className="bg-slate-50 p-4 rounded-lg border border-gray-200">
                   <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">報修人資料</h4>
@@ -522,15 +534,14 @@ export const Repairs: React.FC = () => {
                         <p className="text-sm text-slate-700 py-1.5">{currentUser?.name}</p>
                      </div>
                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">班級 / 部門</label>
-                        <input type="text" value={userClass} onChange={e => setUserClass(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="例: 資訊三甲"/>
+                        <label className="block text-xs text-slate-500 mb-1">班級 / 部門 <span className="text-red-500">*</span></label>
+                        <input type="text" required value={userClass} onChange={e => setUserClass(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="例: 資訊三甲"/>
                      </div>
                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">聯絡電話</label>
-                        <input type="tel" value={userPhone} onChange={e => setUserPhone(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="09xx-xxx-xxx"/>
+                        <label className="block text-xs text-slate-500 mb-1">聯絡電話 <span className="text-red-500">*</span></label>
+                        <input type="tel" required value={userPhone} onChange={e => setUserPhone(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" placeholder="09xx-xxx-xxx"/>
                      </div>
                   </div>
-                  <p className="text-xs text-slate-400 mt-2 text-right">* 修改此處資料僅適用於本報修單</p>
                 </div>
               )}
 

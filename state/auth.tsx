@@ -9,6 +9,7 @@ import {
   exchangeLoginCode,
   registerWithPassword as registerWithPasswordApi,
   loginWithPassword as loginWithPasswordApi,
+  updateProfile as updateProfileApi,
 } from '../services/auth';
 
 export interface AuthData {
@@ -19,6 +20,7 @@ export interface AuthData {
   refreshCurrentUser: () => Promise<void>;
   registerWithPassword: (email: string, name: string, password: string) => Promise<'ACTIVE' | 'PENDING'>;
   loginWithPassword: (email: string, password: string) => Promise<void>;
+  updateProfile: (userClass: string, phone: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -84,6 +86,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(user);
   };
 
+  // Saves 班級/部門 + 電話 to the current User's profile — shared by the
+  // Account Settings save action and (via a subsequent refreshCurrentUser)
+  // by Repair Ticket submission's write-back. Updates state directly from
+  // the response rather than re-fetching, since the response already
+  // carries the saved values.
+  const updateProfile = async (userClass: string, phone: string) => {
+    const token = getToken();
+    if (!token) return;
+    const updated = await updateProfileApi(token, userClass, phone);
+    setCurrentUser((prev) => (prev ? { ...prev, class: updated.class, phone: updated.phone } : prev));
+  };
+
   const logout = () => {
     clearToken();
     setCurrentUser(null);
@@ -92,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{
       currentUser, authLoading,
-      loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, logout,
+      loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, updateProfile, logout,
     }}>
       {children}
     </AuthContext.Provider>

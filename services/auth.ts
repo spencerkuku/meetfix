@@ -79,6 +79,8 @@ interface MeResponse {
   name: string;
   role: User['role'];
   avatarUrl: string | null;
+  class: string | null;
+  phone: string | null;
   googleLinked: boolean;
 }
 
@@ -96,10 +98,33 @@ export async function fetchCurrentUser(token: string): Promise<User | null> {
       role: data.role,
       googleLinked: data.googleLinked,
       avatarUrl: data.avatarUrl,
+      class: data.class ?? undefined,
+      phone: data.phone ?? undefined,
     };
   } catch {
     return null;
   }
+}
+
+// Self-service reporter-info update — saves the User's 班級/部門 and 電話
+// (see Repair Ticket's userClass/userPhone) directly, independent of
+// submitting a Repair Ticket. Both required, mirroring Repair Ticket
+// submission's own required-field rule.
+export async function updateProfile(
+  token: string,
+  userClass: string,
+  phone: string,
+): Promise<{ class: string; phone: string }> {
+  const res = await fetch(`${API_BASE_URL}/auth/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ class: userClass, phone }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || 'Failed to update profile');
+  }
+  return res.json();
 }
 
 // Self-service password change for the currently-logged-in User. Requires
