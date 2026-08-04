@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { User, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain, AuditLogEntry } from './types';
+import { User, AdminUser, AccountStatus, Room, Booking, RepairTicket, RepairCategory, UserRole, PendingAccount, AutoApprovedDomain, AuditLogEntry } from './types';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -19,7 +19,7 @@ import { getToken, setToken, clearToken, fetchCurrentUser, googleLoginUrl, excha
 import { fetchRooms, createRoom, updateRoomApi, deleteRoomApi, RoomFormInput } from './services/rooms';
 import { fetchBookings, createBooking, updateBooking as updateBookingApi, deleteBooking as deleteBookingApi, approveBooking as approveBookingApi, rejectBooking as rejectBookingApi, CreateBookingInput, UpdateBookingInput } from './services/bookings';
 import { fetchRepairs, createRepairTicket, updateRepairTicket, updateRepairContent, deleteRepairTicket, fetchRepairCategories, createRepairCategory, deleteRepairCategory, RepairTicketFormInput, UpdateRepairTicketInput, UpdateRepairContentInput } from './services/repairs';
-import { fetchUsers, updateUserRole as updateUserRoleApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
+import { fetchUsers, updateUserRole as updateUserRoleApi, updateUserStatus as updateUserStatusApi, deleteUser as deleteUserApi, fetchPendingAccounts, approveAccount as approveAccountApi, fetchAutoApprovedDomains, addAutoApprovedDomain as addAutoApprovedDomainApi, updateAutoApprovedDomain as updateAutoApprovedDomainApi, removeAutoApprovedDomain as removeAutoApprovedDomainApi } from './services/admin';
 import { fetchAuditLog } from './services/audit';
 
 // --- Mock Data ---
@@ -59,8 +59,10 @@ interface DataContextType {
   // Admin-only: real User/Account administration (ticket #4). `users` and
   // `pendingAccounts`/`autoApprovedDomains` are only fetched for an ADMIN
   // currentUser — see the effect below.
-  users: User[];
+  users: AdminUser[];
   updateUserRole: (userId: string, role: UserRole) => Promise<void>;
+  updateUserStatus: (userId: string, status: AccountStatus) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
   pendingAccounts: PendingAccount[];
   approveAccount: (accountId: string, role: UserRole) => Promise<void>;
   autoApprovedDomains: AutoApprovedDomain[];
@@ -91,7 +93,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [repairs, setRepairs] = useState<RepairTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [repairCategories, setRepairCategories] = useState<RepairCategory[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
   const [autoApprovedDomains, setAutoApprovedDomains] = useState<AutoApprovedDomain[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
@@ -225,6 +227,16 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     setUsers(prev => prev.map(u => u.id === userId ? user : u));
   };
 
+  const updateUserStatus = async (userId: string, status: AccountStatus) => {
+    const user = await updateUserStatusApi(userId, status);
+    setUsers(prev => prev.map(u => u.id === userId ? user : u));
+  };
+
+  const deleteUser = async (userId: string) => {
+    await deleteUserApi(userId);
+    setUsers(prev => prev.filter(u => u.id !== userId));
+  };
+
   const approveAccount = async (accountId: string, role: UserRole) => {
     await approveAccountApi(accountId, role);
     setPendingAccounts(prev => prev.filter(a => a.id !== accountId));
@@ -285,7 +297,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking,
       addRepair, updateRepair, editRepairContent, deleteRepair, updateUser,
       addRepairCategory, removeRepairCategory, addRoom, updateRoom, removeRoom,
-      users, updateUserRole, pendingAccounts, approveAccount,
+      users, updateUserRole, updateUserStatus, deleteUser, pendingAccounts, approveAccount,
       autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain, auditLog
     }}>
       {children}

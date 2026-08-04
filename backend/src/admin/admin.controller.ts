@@ -17,6 +17,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AdminService } from './admin.service';
 import type { UpdateRoleDto } from './update-role.dto';
+import type { UpdateStatusDto } from './update-status.dto';
 import type { AddDomainDto } from './add-domain.dto';
 import type { UpdateDomainDto } from './update-domain.dto';
 
@@ -80,5 +81,20 @@ export class AdminController {
     @Body() body: UpdateRoleDto,
   ) {
     return this.adminService.updateUserRole(actor.id, id, body);
+  }
+
+  @Patch('users/:id/status')
+  updateUserStatus(
+    @CurrentUser() actor: User,
+    @Param('id') id: string,
+    @Body() body: UpdateStatusDto,
+  ) {
+    return this.adminService.updateUserStatus(actor.id, id, body);
+  }
+
+  @Delete('users/:id')
+  @HttpCode(204)
+  deleteUser(@CurrentUser() actor: User, @Param('id') id: string) {
+    return this.adminService.deleteUser(actor.id, id);
   }
 }

@@ -40,6 +40,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException('User no longer exists');
     }
+    if (await this.authService.isAccountSuspended(user.id)) {
+      throw new UnauthorizedException('Account has been suspended');
+    }
     return user;
   }
 }

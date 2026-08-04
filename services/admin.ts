@@ -1,4 +1,4 @@
-import { AutoApprovedDomain, PendingAccount, User, UserRole } from '../types';
+import { AccountStatus, AdminUser, AutoApprovedDomain, PendingAccount, User, UserRole } from '../types';
 import { API_BASE_URL, authHeaders } from './http';
 
 interface ApiUser {
@@ -7,6 +7,14 @@ interface ApiUser {
   name: string;
   role: UserRole;
   avatarUrl: string | null;
+}
+
+interface ApiAdminUser extends ApiUser {
+  accountStatus: AccountStatus;
+  googleLinked: boolean;
+  hasPassword: boolean;
+  bookingCount: number;
+  repairTicketCount: number;
 }
 
 function toUser(u: ApiUser): User {
@@ -19,21 +27,50 @@ function toUser(u: ApiUser): User {
   };
 }
 
-export async function fetchUsers(): Promise<User[]> {
-  const res = await fetch(`${API_BASE_URL}/admin/users`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch users');
-  const data: ApiUser[] = await res.json();
-  return data.map(toUser);
+function toAdminUser(u: ApiAdminUser): AdminUser {
+  return {
+    ...toUser(u),
+    accountStatus: u.accountStatus,
+    googleLinked: u.googleLinked,
+    hasPassword: u.hasPassword,
+    bookingCount: u.bookingCount,
+    repairTicketCount: u.repairTicketCount,
+  };
 }
 
-export async function updateUserRole(id: string, role: UserRole): Promise<User> {
+export async function fetchUsers(): Promise<AdminUser[]> {
+  const res = await fetch(`${API_BASE_URL}/admin/users`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch users');
+  const data: ApiAdminUser[] = await res.json();
+  return data.map(toAdminUser);
+}
+
+export async function updateUserRole(id: string, role: UserRole): Promise<AdminUser> {
   const res = await fetch(`${API_BASE_URL}/admin/users/${id}/role`, {
     method: 'PATCH',
     headers: authHeaders(true),
     body: JSON.stringify({ role }),
   });
   if (!res.ok) throw new Error('Failed to update role');
-  return toUser(await res.json());
+  return toAdminUser(await res.json());
+}
+
+export async function updateUserStatus(id: string, status: AccountStatus): Promise<AdminUser> {
+  const res = await fetch(`${API_BASE_URL}/admin/users/${id}/status`, {
+    method: 'PATCH',
+    headers: authHeaders(true),
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error('Failed to update account status');
+  return toAdminUser(await res.json());
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to delete user');
 }
 
 export async function fetchPendingAccounts(): Promise<PendingAccount[]> {

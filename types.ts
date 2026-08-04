@@ -19,6 +19,22 @@ export interface User {
   hasPassword?: boolean;
 }
 
+export enum AccountStatus {
+  ACTIVE = 'ACTIVE',
+  SUSPENDED = 'SUSPENDED',
+}
+
+// A User as shown in 人員權限管理 (Admin.tsx) — includes fields only an
+// ADMIN needs: currently-linked login methods, Account Status, and enough
+// of a footprint to warn before a destructive User Deletion.
+export interface AdminUser extends User {
+  accountStatus: AccountStatus;
+  googleLinked: boolean;
+  hasPassword: boolean;
+  bookingCount: number;
+  repairTicketCount: number;
+}
+
 export interface Room {
   id: string;
   name: string;

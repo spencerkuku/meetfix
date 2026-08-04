@@ -413,6 +413,15 @@ export class AuthService {
     };
   }
 
+  // Checked on every request (see JwtStrategy.validate) so an Admin
+  // suspending a User takes effect immediately, not just on next login.
+  async isAccountSuspended(userId: string): Promise<boolean> {
+    const account = await this.prisma.account.findUnique({
+      where: { userId },
+    });
+    return account?.status === AccountStatus.SUSPENDED;
+  }
+
   private async signToken(user: User): Promise<string> {
     return this.jwt.signAsync({
       sub: user.id,

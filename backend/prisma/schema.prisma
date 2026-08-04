@@ -24,10 +24,13 @@ enum AccountProvider {
 }
 
 // Account Status: only meaningful for PASSWORD accounts — GOOGLE accounts
-// are always immediately usable. See CONTEXT.md.
+// are always immediately usable. SUSPENDED is an Admin-driven, reversible
+// block on login (distinct from PENDING, which is awaiting Account
+// Approval) — it never applies to a PENDING Account. See CONTEXT.md.
 enum AccountStatus {
   PENDING
   ACTIVE
+  SUSPENDED
 }
 
 model User {
@@ -42,9 +45,9 @@ model User {
   avatarUrl String?
   createdAt DateTime @default(now())
 
-  account        Account?
-  bookings       Booking[]
-  repairTickets  RepairTicket[]
+  account         Account?
+  bookings        Booking[]
+  repairTickets   RepairTicket[]
   auditLogEntries AuditLogEntry[]
 }
 
@@ -107,17 +110,17 @@ enum BookingStatus {
 
 // Booking: a claim on a Room for a specific time range. See CONTEXT.md.
 model Booking {
-  id          String        @id @default(cuid())
-  roomId      String
-  room        Room          @relation(fields: [roomId], references: [id])
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-  title       String
-  description String?
-  startTime   DateTime
-  endTime     DateTime
-  status      BookingStatus
-  createdAt   DateTime      @default(now())
+  id            String        @id @default(cuid())
+  roomId        String
+  room          Room          @relation(fields: [roomId], references: [id])
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  title         String
+  description   String?
+  startTime     DateTime
+  endTime       DateTime
+  status        BookingStatus
+  createdAt     DateTime      @default(now())
   // The synced Google Calendar event id for this Booking, set once it
   // becomes CONFIRMED for a Google-authenticated User. Null for
   // PENDING_APPROVAL Bookings, password-Account Users, or if the sync
@@ -127,7 +130,7 @@ model Booking {
   // from view, regardless of its `status`. Distinct from `status` — a
   // deleted Booking keeps whatever status it had (e.g. CANCELLED) and is
   // simply excluded from all reads. See issue #19.
-  deletedAt DateTime?
+  deletedAt     DateTime?
 
   @@index([roomId, startTime, endTime])
 }
@@ -174,7 +177,8 @@ model RepairTicket {
 
 // Audit Log Entry: an immutable record of who performed a state-changing
 // action, when, and on what — currently scoped to Role changes, Booking
-// Approvals, Account Approvals, and Repair Status changes. See CONTEXT.md.
+// Approvals, Account Approvals, Repair Status changes, Account
+// Suspension/Reactivation, and User Deletion. See CONTEXT.md.
 // `targetType`/`targetId` deliberately isn't a typed FK — the target can be
 // a User, Booking, Account or RepairTicket, and the log must outlive its
 // target (never cascade-deleted).
@@ -184,12 +188,23 @@ enum AuditAction {
   ACCOUNT_APPROVAL
   REPAIR_STATUS_CHANGE
   AUTO_APPROVED_DOMAIN_CHANGE
+  ACCOUNT_SUSPENSION
+  ACCOUNT_REACTIVATION
+  USER_DELETION
 }
 
 model AuditLogEntry {
   id         String      @id @default(cuid())
-  actorId    String
-  actor      User        @relation(fields: [actorId], references: [id])
+  // Nullable + SetNull: an actor whose User row is later deleted (User
+  // Deletion) must not block that deletion, and must not silently vanish
+  // from history — see `actorName` below.
+  actorId    String?
+  actor      User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  // Snapshot of the actor's name, populated only at the moment their User
+  // row is deleted (see AdminService.deleteUser) so the entry still reads
+  // "acted by <name>" after `actor` goes null instead of losing the
+  // attribution entirely.
+  actorName  String?
   action     AuditAction
   targetType String
   targetId   String

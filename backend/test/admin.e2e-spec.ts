@@ -355,4 +355,300 @@ describe('Admin (e2e)', () => {
       expect(updated.role).toBe('USER');
     });
   });
+
+  describe('User list: login method visibility', () => {
+    it('reports googleLinked/hasPassword/accountStatus/bookingCount/repairTicketCount for a Google-provisioned User', async () => {
+      const list = await apiRequest(app)
+        .get('/admin/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const entry = (
+        list.body as {
+          email: string;
+          googleLinked: boolean;
+          hasPassword: boolean;
+          accountStatus: string;
+          bookingCount: number;
+          repairTicketCount: number;
+        }[]
+      ).find((u) => u.email === 'plainuser@school.edu.tw');
+      expect(entry).toMatchObject({
+        googleLinked: true,
+        hasPassword: false,
+        accountStatus: 'ACTIVE',
+        bookingCount: 0,
+        repairTicketCount: 0,
+      });
+    });
+
+    it('reports hasPassword: true for a password-registered User', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'loginmethod.example.com' },
+      });
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'pw-user@loginmethod.example.com',
+          name: '密碼使用者',
+          password: 'password123',
+        })
+        .expect(201);
+
+      const list = await apiRequest(app)
+        .get('/admin/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const entry = (
+        list.body as {
+          email: string;
+          googleLinked: boolean;
+          hasPassword: boolean;
+        }[]
+      ).find((u) => u.email === 'pw-user@loginmethod.example.com');
+      expect(entry).toMatchObject({ googleLinked: false, hasPassword: true });
+    });
+  });
+
+  describe('Account suspension', () => {
+    it('ADMIN can suspend an active User, blocking status changes, then reactivate it', async () => {
+      await tokenFor('suspend-target@school.edu.tw', Role.USER);
+      const targetUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'suspend-target@school.edu.tw' },
+      });
+
+      const suspended = await apiRequest(app)
+        .patch(`/admin/users/${targetUser.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'SUSPENDED' })
+        .expect(200);
+      expect((suspended.body as { accountStatus: string }).accountStatus).toBe(
+        'SUSPENDED',
+      );
+
+      const list = await apiRequest(app)
+        .get('/admin/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(
+        (list.body as { id: string; accountStatus: string }[]).find(
+          (u) => u.id === targetUser.id,
+        )?.accountStatus,
+      ).toBe('SUSPENDED');
+
+      const reactivated = await apiRequest(app)
+        .patch(`/admin/users/${targetUser.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'ACTIVE' })
+        .expect(200);
+      expect(
+        (reactivated.body as { accountStatus: string }).accountStatus,
+      ).toBe('ACTIVE');
+    });
+
+    it('rejects suspending a User whose Account is still PENDING', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'pending-suspend@unknown.example.com',
+          name: '待審核停權測試',
+          password: 'password123',
+        })
+        .expect(201);
+      const pendingUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'pending-suspend@unknown.example.com' },
+      });
+
+      await apiRequest(app)
+        .patch(`/admin/users/${pendingUser.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'SUSPENDED' })
+        .expect(400);
+    });
+
+    it('rejects suspending the last remaining ADMIN', async () => {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'admin@school.edu.tw' },
+      });
+
+      await apiRequest(app)
+        .patch(`/admin/users/${admin.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'SUSPENDED' })
+        .expect(400);
+
+      const unchanged = await prisma.user.findUniqueOrThrow({
+        where: { id: admin.id },
+        include: { account: true },
+      });
+      expect(unchanged.account!.status).toBe('ACTIVE');
+    });
+
+    it('rejects an ADMIN suspending themselves even when another ADMIN remains', async () => {
+      await tokenFor('third-admin@school.edu.tw', Role.ADMIN);
+      const thirdAdmin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'third-admin@school.edu.tw' },
+      });
+      const thirdAdminToken = await tokenFor(
+        'third-admin@school.edu.tw',
+        Role.ADMIN,
+      );
+
+      await apiRequest(app)
+        .patch(`/admin/users/${thirdAdmin.id}/status`)
+        .set('Authorization', `Bearer ${thirdAdminToken}`)
+        .send({ status: 'SUSPENDED' })
+        .expect(400);
+
+      // Demote back so this Google-provisioned test User (never cleaned up
+      // by afterEach, which only targets PASSWORD accounts) doesn't count
+      // as a remaining ADMIN in later tests.
+      await prisma.user.update({
+        where: { id: thirdAdmin.id },
+        data: { role: Role.USER },
+      });
+    });
+
+    it('rejects an unknown status value', async () => {
+      const targetUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'plainuser@school.edu.tw' },
+      });
+      await apiRequest(app)
+        .patch(`/admin/users/${targetUser.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'PENDING' })
+        .expect(400);
+    });
+
+    it('404s when suspending a User that does not exist', () => {
+      return apiRequest(app)
+        .patch('/admin/users/not-a-real-user/status')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'SUSPENDED' })
+        .expect(404);
+    });
+  });
+
+  describe('User deletion', () => {
+    async function makeRoom() {
+      return prisma.room.create({
+        data: {
+          name: '刪除測試室',
+          location: '1F',
+          capacity: 4,
+          equipment: [],
+          requiresApproval: false,
+        },
+      });
+    }
+
+    it('hard-deletes a User, cascading their Bookings and Repair Tickets, and records a USER_DELETION audit entry', async () => {
+      await tokenFor('delete-target@school.edu.tw', Role.USER);
+      const target = await prisma.user.findUniqueOrThrow({
+        where: { email: 'delete-target@school.edu.tw' },
+      });
+      const room = await makeRoom();
+      await prisma.booking.create({
+        data: {
+          roomId: room.id,
+          userId: target.id,
+          title: '待刪除的預約',
+          startTime: new Date(Date.now() + 60 * 60 * 1000),
+          endTime: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          status: 'CONFIRMED',
+        },
+      });
+      await prisma.repairTicket.create({
+        data: {
+          location: '2F 走廊',
+          userId: target.id,
+          category: '硬體設備',
+          description: '待刪除的報修單',
+          status: 'PENDING',
+        },
+      });
+      // A prior action performed by the target (as an earlier ADMIN) so we
+      // can verify its Audit Log Entry survives with a name snapshot.
+      await prisma.auditLogEntry.create({
+        data: {
+          actorId: target.id,
+          action: 'ROLE_CHANGE',
+          targetType: 'User',
+          targetId: 'irrelevant',
+          detail: 'Role changed from USER to ROOM_MANAGER',
+        },
+      });
+
+      await apiRequest(app)
+        .delete(`/admin/users/${target.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(204);
+
+      expect(await prisma.user.findUnique({ where: { id: target.id } })).toBeNull();
+      expect(
+        await prisma.booking.findMany({ where: { userId: target.id } }),
+      ).toHaveLength(0);
+      expect(
+        await prisma.repairTicket.findMany({ where: { userId: target.id } }),
+      ).toHaveLength(0);
+
+      const priorEntry = await prisma.auditLogEntry.findFirstOrThrow({
+        where: { action: 'ROLE_CHANGE', detail: { contains: 'ROOM_MANAGER' } },
+      });
+      expect(priorEntry.actorId).toBeNull();
+      expect(priorEntry.actorName).toBe('delete-target@school.edu.tw');
+
+      const deletionEntry = await prisma.auditLogEntry.findFirstOrThrow({
+        where: { action: 'USER_DELETION', targetId: target.id },
+      });
+      expect(deletionEntry.actorId).toBe(
+        (await prisma.user.findUniqueOrThrow({
+          where: { email: 'admin@school.edu.tw' },
+        })).id,
+      );
+      expect(deletionEntry.detail).toEqual(
+        expect.stringContaining('1 Booking'),
+      );
+      expect(deletionEntry.detail).toEqual(
+        expect.stringContaining('1 Repair Ticket'),
+      );
+    });
+
+    it('rejects deleting the last remaining ADMIN', async () => {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'admin@school.edu.tw' },
+      });
+
+      await apiRequest(app)
+        .delete(`/admin/users/${admin.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+
+      expect(
+        await prisma.user.findUnique({ where: { id: admin.id } }),
+      ).not.toBeNull();
+    });
+
+    it('rejects an ADMIN deleting themselves even when another ADMIN remains', async () => {
+      await tokenFor('fourth-admin@school.edu.tw', Role.ADMIN);
+      const fourthAdmin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'fourth-admin@school.edu.tw' },
+      });
+      const fourthAdminToken = await tokenFor(
+        'fourth-admin@school.edu.tw',
+        Role.ADMIN,
+      );
+
+      await apiRequest(app)
+        .delete(`/admin/users/${fourthAdmin.id}`)
+        .set('Authorization', `Bearer ${fourthAdminToken}`)
+        .expect(400);
+    });
+
+    it('404s when deleting a User that does not exist', () => {
+      return apiRequest(app)
+        .delete('/admin/users/not-a-real-user')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+    });
+  });
 });

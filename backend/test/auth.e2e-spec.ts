@@ -205,6 +205,24 @@ describe('Auth (e2e)', () => {
     });
   });
 
+  it('rejects a session token immediately once its Account is suspended, without requiring a new login', async () => {
+    const { userId, accessToken } = await issueSessionToken();
+    await apiRequest(app)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    await prisma.account.update({
+      where: { userId },
+      data: { status: 'SUSPENDED' },
+    });
+
+    await apiRequest(app)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(401);
+  });
+
   it('POST /auth/exchange rejects a login code that has already been used', async () => {
     const { user } = await authService.loginWithGoogle(schoolProfile());
     const code = authService.createLoginCode(user.id);

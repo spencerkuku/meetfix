@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateRoleDto } from './update-role.dto';
+import { UpdateStatusDto } from './update-status.dto';
 import { AddDomainDto } from './add-domain.dto';
 import { UpdateDomainDto } from './update-domain.dto';
 
@@ -28,6 +29,36 @@ function toPendingAccount(
     email: user.email,
     name: user.name,
     createdAt: rest.createdAt,
+  };
+}
+
+const ADMIN_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  avatarUrl: true,
+  createdAt: true,
+  account: {
+    select: { status: true, googleSub: true, passwordHash: true },
+  },
+  _count: { select: { bookings: true, repairTickets: true } },
+} satisfies Prisma.UserSelect;
+
+type AdminUserRow = Prisma.UserGetPayload<{ select: typeof ADMIN_USER_SELECT }>;
+
+// Reports every currently-linked login method (a User may have both, via
+// Google account linking — see ADR-0003) rather than just the original
+// signup provider, so the list reflects what actually works today.
+function toAdminUser(user: AdminUserRow) {
+  const { account, _count, ...rest } = user;
+  return {
+    ...rest,
+    accountStatus: account?.status ?? AccountStatus.ACTIVE,
+    googleLinked: account?.googleSub != null,
+    hasPassword: account?.passwordHash != null,
+    bookingCount: _count.bookings,
+    repairTicketCount: _count.repairTickets,
   };
 }
 
@@ -172,23 +203,40 @@ export class AdminService {
     );
   }
 
-  // Only Users with an ACTIVE Account are listed/editable here — a User
-  // whose password Account is still PENDING must go through Account
-  // Approval first, not have its Role set through this side door. See
-  // ADR-0003, CONTEXT.md.
-  listUsers() {
-    return this.prisma.user.findMany({
-      where: { account: { status: AccountStatus.ACTIVE } },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        avatarUrl: true,
-        createdAt: true,
+  // Only Users with an ACTIVE or SUSPENDED Account are listed/editable here
+  // — a User whose password Account is still PENDING must go through
+  // Account Approval first, not have its Role set through this side door.
+  // See ADR-0003, CONTEXT.md.
+  async listUsers() {
+    const users = await this.prisma.user.findMany({
+      where: {
+        account: {
+          status: { in: [AccountStatus.ACTIVE, AccountStatus.SUSPENDED] },
+        },
       },
+      select: ADMIN_USER_SELECT,
       orderBy: { createdAt: 'asc' },
     });
+    return users.map(toAdminUser);
+  }
+
+  private async findAdminUser(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: ADMIN_USER_SELECT,
+    });
+    return toAdminUser(user);
+  }
+
+  // Shared by Role Change, Suspension, and Deletion — none of them may
+  // leave the system with zero remaining Admins. See CONTEXT.md.
+  private async assertNotLastAdmin(userId: string, verb: string) {
+    const remainingAdmins = await this.prisma.user.count({
+      where: { role: Role.ADMIN, id: { not: userId } },
+    });
+    if (remainingAdmins === 0) {
+      throw new BadRequestException(`Cannot ${verb} the last remaining Admin`);
+    }
   }
 
   async updateUserRole(actorId: string, userId: string, dto: UpdateRoleDto) {
@@ -208,29 +256,10 @@ export class AdminService {
       );
     }
     if (user.role === Role.ADMIN && dto.role !== Role.ADMIN) {
-      const remainingAdmins = await this.prisma.user.count({
-        where: { role: Role.ADMIN, id: { not: userId } },
-      });
-      if (remainingAdmins === 0) {
-        throw new BadRequestException(
-          'Cannot remove the last remaining Admin',
-        );
-      }
+      await this.assertNotLastAdmin(userId, 'remove');
     }
-    return this.audit.runAuditedTransaction(
-      (tx) =>
-        tx.user.update({
-          where: { id: userId },
-          data: { role: dto.role },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            avatarUrl: true,
-            createdAt: true,
-          },
-        }),
+    await this.audit.runAuditedTransaction(
+      (tx) => tx.user.update({ where: { id: userId }, data: { role: dto.role } }),
       {
         actorId,
         action: AuditAction.ROLE_CHANGE,
@@ -238,6 +267,105 @@ export class AdminService {
         targetId: userId,
         detail: `Role changed from ${user.role} to ${dto.role}`,
       },
+    );
+    return this.findAdminUser(userId);
+  }
+
+  // Suspension: a reversible, Admin-driven block on login that leaves the
+  // User's existing Bookings/Repair Tickets untouched. Distinct from
+  // Account Approval's PENDING — suspending only ever applies to an
+  // already-ACTIVE or already-SUSPENDED Account. See CONTEXT.md.
+  async updateUserStatus(actorId: string, userId: string, dto: UpdateStatusDto) {
+    if (dto.status !== AccountStatus.ACTIVE && dto.status !== AccountStatus.SUSPENDED) {
+      throw new BadRequestException('status must be ACTIVE or SUSPENDED');
+    }
+    if (actorId === userId) {
+      throw new BadRequestException('Cannot change your own Account Status');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { account: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const previousStatus = user.account?.status;
+    if (
+      previousStatus !== AccountStatus.ACTIVE &&
+      previousStatus !== AccountStatus.SUSPENDED
+    ) {
+      throw new BadRequestException(
+        'This User does not have an active Account — use Account Approval instead',
+      );
+    }
+    if (dto.status === AccountStatus.SUSPENDED && user.role === Role.ADMIN) {
+      await this.assertNotLastAdmin(userId, 'suspend');
+    }
+
+    await this.audit.runAuditedTransaction(
+      (tx) =>
+        tx.account.update({
+          where: { userId },
+          data: { status: dto.status },
+        }),
+      {
+        actorId,
+        action:
+          dto.status === AccountStatus.SUSPENDED
+            ? AuditAction.ACCOUNT_SUSPENSION
+            : AuditAction.ACCOUNT_REACTIVATION,
+        targetType: 'User',
+        targetId: userId,
+        detail: `Account Status changed from ${previousStatus} to ${dto.status}`,
+      },
+    );
+    return this.findAdminUser(userId);
+  }
+
+  // User Deletion: a true hard delete, distinct from Booking Deletion /
+  // Repair Ticket Deletion (which are soft, `deletedAt`-based, and scoped
+  // to the owner's own future/pending items). Deleting the User cascades
+  // to remove all of their Bookings and Repair Tickets outright. Audit Log
+  // Entries where this User was the actor are kept — `actorId` is nulled
+  // (FK onDelete: SetNull) and `actorName` is snapshotted first so history
+  // still reads correctly. See CONTEXT.md.
+  async deleteUser(actorId: string, userId: string) {
+    if (actorId === userId) {
+      throw new BadRequestException('Cannot delete your own Account');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.role === Role.ADMIN) {
+      await this.assertNotLastAdmin(userId, 'delete');
+    }
+
+    await this.audit.runAuditedTransaction(
+      async (tx) => {
+        await tx.auditLogEntry.updateMany({
+          where: { actorId: userId },
+          data: { actorName: user.name },
+        });
+        const { count: bookingCount } = await tx.booking.deleteMany({
+          where: { userId },
+        });
+        const { count: repairTicketCount } = await tx.repairTicket.deleteMany(
+          { where: { userId } },
+        );
+        await tx.account.deleteMany({ where: { userId } });
+        await tx.user.delete({ where: { id: userId } });
+        return { bookingCount, repairTicketCount };
+      },
+      (result) => ({
+        actorId,
+        action: AuditAction.USER_DELETION,
+        targetType: 'User',
+        targetId: userId,
+        detail: `Deleted User ${user.name} <${user.email}> (cascaded ${result.bookingCount} Booking(s), ${result.repairTicketCount} Repair Ticket(s))`,
+      }),
     );
   }
 }

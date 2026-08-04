@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { useData } from '../App';
-import { UserRole } from '../types';
+import { AccountStatus, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
-import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe } from 'lucide-react';
+import { fetchUsers } from '../services/admin';
+import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe, KeyRound, Ban } from 'lucide-react';
 
 export const Admin: React.FC = () => {
   const {
-    currentUser, users, updateUserRole, repairCategories, addRepairCategory, removeRepairCategory,
+    currentUser, users, updateUserRole, updateUserStatus, deleteUser, repairCategories, addRepairCategory, removeRepairCategory,
     pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
   } = useData();
   const { success, error } = useToast();
@@ -41,6 +42,57 @@ export const Admin: React.FC = () => {
       success('角色已更新');
     } catch {
       error('角色更新失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleToggleStatus = async (userId: string, currentStatus: AccountStatus) => {
+    const nextStatus = currentStatus === AccountStatus.SUSPENDED ? AccountStatus.ACTIVE : AccountStatus.SUSPENDED;
+    setBusyId(userId);
+    try {
+      await updateUserStatus(userId, nextStatus);
+      success(nextStatus === AccountStatus.SUSPENDED ? '已停權' : '已恢復使用');
+    } catch {
+      error('更新停權狀態失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, name: string, fallbackBookingCount: number, fallbackRepairTicketCount: number) => {
+    // Re-fetch immediately before confirming — `users` in context may be
+    // stale (e.g. the User booked a Room in another tab since this page
+    // last loaded), and this dialog is the one place that count must be
+    // accurate, not just approximately right.
+    let bookingCount = fallbackBookingCount;
+    let repairTicketCount = fallbackRepairTicketCount;
+    try {
+      const fresh = await fetchUsers();
+      const freshUser = fresh.find(u => u.id === userId);
+      if (freshUser) {
+        bookingCount = freshUser.bookingCount;
+        repairTicketCount = freshUser.repairTicketCount;
+      }
+    } catch {
+      // Fall back to the last-known counts rather than blocking deletion.
+    }
+
+    const impact = [
+      bookingCount > 0 ? `${bookingCount} 筆 Booking` : null,
+      repairTicketCount > 0 ? `${repairTicketCount} 筆 Repair Ticket` : null,
+    ].filter(Boolean).join('、');
+    const message = impact
+      ? `確定要刪除使用者「${name}」嗎？此動作無法復原，該使用者的 ${impact} 將一併刪除。`
+      : `確定要刪除使用者「${name}」嗎？此動作無法復原。`;
+    if (!window.confirm(message)) return;
+
+    setBusyId(userId);
+    try {
+      await deleteUser(userId);
+      success('使用者已刪除');
+    } catch {
+      error('刪除使用者失敗，請稍後再試');
     } finally {
       setBusyId(null);
     }
@@ -111,18 +163,37 @@ export const Admin: React.FC = () => {
                 <tr className="bg-slate-50 border-b border-gray-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   <th className="p-4">使用者</th>
                   <th className="p-4">Email</th>
+                  <th className="p-4">登入方式</th>
                   <th className="p-4">目前角色</th>
+                  <th className="p-4">狀態</th>
                   <th className="p-4">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {users.map(user => (
+                {users.map(user => {
+                  const isSelf = user.id === currentUser?.id;
+                  const isSuspended = user.accountStatus === AccountStatus.SUSPENDED;
+                  return (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="p-4 flex items-center gap-3">
                       <Avatar avatarUrl={user.avatarUrl} name={user.name} size={16} className="w-8 h-8 rounded-full bg-gray-200 text-slate-500" />
                       <span className="font-medium text-slate-700">{user.name}</span>
                     </td>
                     <td className="p-4 text-slate-500">{user.email}</td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1">
+                        {user.googleLinked && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                            <Globe size={12}/> Google
+                          </span>
+                        )}
+                        {user.hasPassword && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                            <KeyRound size={12}/> 密碼
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                         ${user.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' :
@@ -133,7 +204,14 @@ export const Admin: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-4">
-                      <div className="flex gap-2">
+                      {isSuspended && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
+                          已停權
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
                         <select
                           value={user.role}
                           disabled={busyId === user.id}
@@ -144,10 +222,28 @@ export const Admin: React.FC = () => {
                             <option key={role} value={role}>{roleLabels[role]}</option>
                           ))}
                         </select>
+                        <button
+                          onClick={() => handleToggleStatus(user.id, user.accountStatus)}
+                          disabled={busyId === user.id || isSelf}
+                          title={isSelf ? '不能對自己的帳號執行此操作' : (isSuspended ? '恢復使用' : '停權')}
+                          className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed
+                            ${isSuspended ? 'text-green-600 hover:bg-green-50' : 'text-slate-400 hover:bg-orange-50 hover:text-orange-600'}`}
+                        >
+                          {isSuspended ? <UserCheck size={16}/> : <Ban size={16}/>}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user.id, user.name, user.bookingCount, user.repairTicketCount)}
+                          disabled={busyId === user.id || isSelf}
+                          title={isSelf ? '不能對自己的帳號執行此操作' : '刪除使用者'}
+                          className="p-1.5 rounded text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
