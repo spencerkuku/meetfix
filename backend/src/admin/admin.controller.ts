@@ -20,6 +20,7 @@ import type { UpdateRoleDto } from './update-role.dto';
 import type { UpdateStatusDto } from './update-status.dto';
 import type { AddDomainDto } from './add-domain.dto';
 import type { UpdateDomainDto } from './update-domain.dto';
+import type { RejectAccountDto } from './reject-account.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -39,6 +40,15 @@ export class AdminController {
     @Body() body: UpdateRoleDto,
   ) {
     return this.adminService.approveAccount(actor.id, id, body);
+  }
+
+  @Patch('accounts/:id/reject')
+  rejectAccount(
+    @CurrentUser() actor: User,
+    @Param('id') id: string,
+    @Body() body: RejectAccountDto,
+  ) {
+    return this.adminService.rejectAccount(actor.id, id, body);
   }
 
   @Get('auto-approved-domains')

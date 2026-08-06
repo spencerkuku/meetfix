@@ -285,6 +285,31 @@ export class AuthService {
     const status = autoApproved ? AccountStatus.ACTIVE : AccountStatus.PENDING;
     const passwordHash = await bcrypt.hash(dto.password, PASSWORD_HASH_ROUNDS);
 
+    // A previously-REJECTED Account Rejection (see AdminService.rejectAccount)
+    // keeps its User/Account row around rather than freeing the email via
+    // deletion — resubmitting here reuses that row in place (new name,
+    // password, and status) instead of hitting the email unique constraint.
+    // `lastRejectionReason`/`lastRejectedAt` are left untouched, so the next
+    // reviewing Admin still sees this email's rejection history. Any other
+    // existing status (PENDING, ACTIVE, SUSPENDED) still conflicts below,
+    // unchanged from prior behavior.
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      include: { account: true },
+    });
+    if (existingUser?.account?.status === AccountStatus.REJECTED) {
+      await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          name: dto.name,
+          account: {
+            update: { status, passwordHash },
+          },
+        },
+      });
+      return { status };
+    }
+
     try {
       await this.prisma.user.create({
         data: {

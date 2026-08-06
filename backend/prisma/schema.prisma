@@ -24,11 +24,15 @@ enum AccountProvider {
 // Account Status: only meaningful for PASSWORD accounts — GOOGLE accounts
 // are always immediately usable. SUSPENDED is an Admin-driven, reversible
 // block on login (distinct from PENDING, which is awaiting Account
-// Approval) — it never applies to a PENDING Account. See CONTEXT.md.
+// Approval) — it never applies to a PENDING Account. REJECTED is an Admin's
+// Account Rejection of a PENDING Account — the User/Account row is kept
+// (not deleted) so a resubmission with the same email can reuse it; see
+// AuthService.registerWithPassword. See CONTEXT.md.
 enum AccountStatus {
   PENDING
   ACTIVE
   SUSPENDED
+  REJECTED
 }
 
 model User {
@@ -85,6 +89,14 @@ model Account {
   passwordHash String?
 
   createdAt DateTime @default(now())
+
+  // Account Rejection: set only by AdminService.rejectAccount, describing
+  // the most recent rejection only — older rejections remain in
+  // AuditLogEntry but are not summarized here. Both null until the first
+  // rejection; left untouched by a later resubmission (registerWithPassword)
+  // so an Admin reviewing the resubmission still sees this context.
+  lastRejectionReason String?
+  lastRejectedAt      DateTime?
 }
 
 // Room: a physical bookable space. See CONTEXT.md. Only `name` and
@@ -196,6 +208,7 @@ enum AuditAction {
   ACCOUNT_REACTIVATION
   USER_DELETION
   REPAIR_EXPORT
+  ACCOUNT_REJECTION
 }
 
 model AuditLogEntry {

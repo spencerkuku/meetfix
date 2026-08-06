@@ -18,6 +18,7 @@ import { UpdateRoleDto } from './update-role.dto';
 import { UpdateStatusDto } from './update-status.dto';
 import { AddDomainDto } from './add-domain.dto';
 import { UpdateDomainDto } from './update-domain.dto';
+import { RejectAccountDto } from './reject-account.dto';
 import { isSerializationFailure } from '../common/is-serialization-failure';
 import { SERIALIZABLE_TX_OPTIONS } from '../common/serializable-tx-options';
 
@@ -31,6 +32,11 @@ function toPendingAccount(
     email: user.email,
     name: user.name,
     createdAt: rest.createdAt,
+    // Set only if this email was previously rejected and has since
+    // resubmitted — lets the reviewing Admin see that history. See
+    // AuthService.registerWithPassword and CONTEXT.md's Account Rejection.
+    lastRejectionReason: rest.lastRejectionReason,
+    lastRejectedAt: rest.lastRejectedAt,
   };
 }
 
@@ -115,6 +121,49 @@ export class AdminService {
         targetType: 'Account',
         targetId: accountId,
         detail: `Approved with Role ${dto.role}`,
+      },
+    );
+  }
+
+  // Account Rejection: distinct from Account Approval — keeps the
+  // User/Account row (rather than deleting it) so a later resubmission with
+  // the same email can reuse it (see AuthService.registerWithPassword),
+  // while still freeing this email up for that resubmission by moving off
+  // PENDING. Only the most recent rejection's reason/timestamp is kept on
+  // the Account row; full history remains in AuditLogEntry. See CONTEXT.md.
+  async rejectAccount(
+    actorId: string,
+    accountId: string,
+    dto: RejectAccountDto,
+  ) {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+    });
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+    if (account.status !== AccountStatus.PENDING) {
+      throw new BadRequestException('This Account is not pending approval');
+    }
+    const reason = dto.reason?.trim() || null;
+
+    await this.audit.runAuditedTransaction(
+      async (tx) => {
+        await tx.account.update({
+          where: { id: accountId },
+          data: {
+            status: AccountStatus.REJECTED,
+            lastRejectionReason: reason,
+            lastRejectedAt: new Date(),
+          },
+        });
+      },
+      {
+        actorId,
+        action: AuditAction.ACCOUNT_REJECTION,
+        targetType: 'Account',
+        targetId: accountId,
+        detail: reason ? `Rejected: ${reason}` : 'Rejected (no reason given)',
       },
     );
   }

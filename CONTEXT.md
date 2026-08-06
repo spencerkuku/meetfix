@@ -29,11 +29,14 @@ The credential record backing a User's ability to log in — either a Google Wor
 _Avoid_: Login, Credentials
 
 **Account Status**:
-Whether an Account (password-based only — Google accounts are always immediately usable) may be used to log in: `PENDING` (awaiting an Admin's Account Approval) or `ACTIVE`.
+Whether an Account (password-based only — Google accounts are always immediately usable) may be used to log in: `PENDING` (awaiting an Admin's Account Approval), `ACTIVE`, `SUSPENDED`, or `REJECTED` (see Account Rejection).
 _Avoid_: Verified, Enabled
 
 **Account Approval**:
 An Admin's act of moving a Pending Account to Active and assigning it a Role. Distinct from Booking Approval — different actor, different object, different consequence. Triggered only for password-registered emails outside the Auto-Approved Domain list.
+
+**Account Rejection**:
+An Admin's act of moving a Pending Account to Rejected, optionally with a short reason. Distinct from Booking Approval's `REJECTED` Booking Status — a different concept on a different entity. Unlike Account Approval, the underlying User/Account row is kept rather than acted on further: a later password registration with the same email reuses that row (resetting it back to Pending, or straight to Active if the email now matches an Auto-Approved Domain) instead of being blocked, so one rejection doesn't permanently lock an applicant out. The Account keeps only its most recent rejection's reason/timestamp, shown to the Admin reviewing that email's next resubmission; earlier rejections remain in the Audit Log Entry history only.
 
 **Auto-Approved Domain**:
 An email domain (e.g. `school.edu.tw`) on an Admin-maintained list. A password registration whose email matches skips Account Approval and activates immediately with the USER role. Each entry may optionally be marked to also trust its subdomains (e.g. `dept.school.edu.tw`) — off by default, so widening one entry (typically the school's own domain) never widens another (e.g. a vendor's domain added for unrelated reasons). Password registration performs no email-ownership verification, so this match is against a self-reported string, not a confirmed mailbox.

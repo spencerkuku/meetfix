@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { App } from 'supertest/types';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
+import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 
 describe('Admin (e2e)', () => {
   let app: INestApplication<App>;
@@ -33,7 +35,10 @@ describe('Admin (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue(permissiveThrottlerGuard)
+      .compile();
 
     app = moduleFixture.createNestApplication();
     setApiPrefix(app);
@@ -73,6 +78,10 @@ describe('Admin (e2e)', () => {
         .expect(403);
       await apiRequest(app)
         .get('/admin/users')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+      await apiRequest(app)
+        .patch('/admin/accounts/does-not-matter/reject')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
     });
@@ -262,6 +271,290 @@ describe('Admin (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'USER' })
         .expect(400);
+    });
+  });
+
+  describe('Account Rejection', () => {
+    it('rejects a Pending Account, removing it from the pending list and recording lastRejectionReason/lastRejectedAt', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'reject-me@unknown.example.com',
+          name: '待拒絕廠商',
+          password: 'password123',
+        })
+        .expect(201);
+
+      const pending = await apiRequest(app)
+        .get('/admin/pending-accounts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const entry = (pending.body as { id: string; email: string }[]).find(
+        (a) => a.email === 'reject-me@unknown.example.com',
+      );
+      expect(entry).toBeDefined();
+
+      await apiRequest(app)
+        .patch(`/admin/accounts/${entry!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: '無法確認廠商身分' })
+        .expect(200);
+
+      const pendingAfter = await apiRequest(app)
+        .get('/admin/pending-accounts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(
+        (pendingAfter.body as { email: string }[]).some(
+          (a) => a.email === 'reject-me@unknown.example.com',
+        ),
+      ).toBe(false);
+
+      const account = await prisma.account.findUniqueOrThrow({
+        where: { id: entry!.id },
+      });
+      expect(account.status).toBe('REJECTED');
+      expect(account.lastRejectionReason).toBe('無法確認廠商身分');
+      expect(account.lastRejectedAt).not.toBeNull();
+    });
+
+    it('rejects a Pending Account without a reason', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'reject-no-reason@unknown.example.com',
+          name: '無理由拒絕測試',
+          password: 'password123',
+        })
+        .expect(201);
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'reject-no-reason@unknown.example.com' },
+        include: { account: true },
+      });
+
+      await apiRequest(app)
+        .patch(`/admin/accounts/${user.account!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(200);
+
+      const account = await prisma.account.findUniqueOrThrow({
+        where: { id: user.account!.id },
+      });
+      expect(account.status).toBe('REJECTED');
+      expect(account.lastRejectionReason).toBeNull();
+      expect(account.lastRejectedAt).not.toBeNull();
+    });
+
+    it('rejects rejecting an already-ACTIVE Account', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'reject-autoactive.example.com' },
+      });
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'active@reject-autoactive.example.com',
+          name: '已啟用不可拒絕',
+          password: 'password123',
+        })
+        .expect(201);
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'active@reject-autoactive.example.com' },
+        include: { account: true },
+      });
+
+      await apiRequest(app)
+        .patch(`/admin/accounts/${user.account!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(400);
+    });
+
+    it('404s when rejecting an Account id that does not exist', () => {
+      return apiRequest(app)
+        .patch('/admin/accounts/not-a-real-account/reject')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(404);
+    });
+
+    it('records an ACCOUNT_REJECTION audit entry with the acting Admin and target Account', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'reject-audit@unknown.example.com',
+          name: '稽核紀錄測試',
+          password: 'password123',
+        })
+        .expect(201);
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: 'reject-audit@unknown.example.com' },
+        include: { account: true },
+      });
+
+      await apiRequest(app)
+        .patch(`/admin/accounts/${user.account!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: '測試稽核' })
+        .expect(200);
+
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { email: 'admin@school.edu.tw' },
+      });
+      const entry = await prisma.auditLogEntry.findFirstOrThrow({
+        where: { action: 'ACCOUNT_REJECTION', targetId: user.account!.id },
+      });
+      expect(entry.actorId).toBe(admin.id);
+      expect(entry.targetType).toBe('Account');
+      expect(entry.detail).toEqual(expect.stringContaining('測試稽核'));
+    });
+
+    it('lets a rejected email register again, reusing the same User row and resetting Account status to PENDING', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'resubmit@unknown.example.com',
+          name: '第一次申請',
+          password: 'password123',
+        })
+        .expect(201);
+      const firstUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'resubmit@unknown.example.com' },
+        include: { account: true },
+      });
+      await apiRequest(app)
+        .patch(`/admin/accounts/${firstUser.account!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: '第一次不通過' })
+        .expect(200);
+
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'resubmit@unknown.example.com',
+          name: '第二次申請',
+          password: 'newpassword456',
+        })
+        .expect(201);
+
+      const secondUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'resubmit@unknown.example.com' },
+        include: { account: true },
+      });
+      expect(secondUser.id).toBe(firstUser.id);
+      expect(secondUser.name).toBe('第二次申請');
+      expect(secondUser.account!.status).toBe('PENDING');
+      // Prior rejection context survives the resubmission, unmodified,
+      // for the next reviewing Admin to see.
+      expect(secondUser.account!.lastRejectionReason).toBe('第一次不通過');
+
+      const pending = await apiRequest(app)
+        .get('/admin/pending-accounts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(
+        (pending.body as { email: string }[]).some(
+          (a) => a.email === 'resubmit@unknown.example.com',
+        ),
+      ).toBe(true);
+
+      const login = await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'resubmit@unknown.example.com',
+          password: 'newpassword456',
+        })
+        .expect(401);
+      expect((login.body as { message: string }).message).toBe(
+        '此帳號尚待管理員審核',
+      );
+    });
+
+    it('lets a rejected email land ACTIVE on resubmission when the domain is now Auto-Approved', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'resubmit-autoapprove@later-approved.example.com',
+          name: '重新申請自動核准',
+          password: 'password123',
+        })
+        .expect(201);
+      const firstUser = await prisma.user.findUniqueOrThrow({
+        where: { email: 'resubmit-autoapprove@later-approved.example.com' },
+        include: { account: true },
+      });
+      await apiRequest(app)
+        .patch(`/admin/accounts/${firstUser.account!.id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(200);
+
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'later-approved.example.com' },
+      });
+
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'resubmit-autoapprove@later-approved.example.com',
+          name: '重新申請自動核准',
+          password: 'password456',
+        })
+        .expect(201);
+
+      const login = await apiRequest(app)
+        .post('/auth/login')
+        .send({
+          email: 'resubmit-autoapprove@later-approved.example.com',
+          password: 'password456',
+        })
+        .expect(201);
+      expect((login.body as { accessToken: string }).accessToken).toEqual(
+        expect.any(String),
+      );
+    });
+
+    it('still rejects registering again while the Account is still PENDING (not REJECTED)', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'still-pending@unknown.example.com',
+          name: '仍待審核',
+          password: 'password123',
+        })
+        .expect(201);
+
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'still-pending@unknown.example.com',
+          name: '重複註冊',
+          password: 'password456',
+        })
+        .expect(409);
+    });
+
+    it('still rejects registering again while the Account is ACTIVE', async () => {
+      await prisma.autoApprovedDomain.create({
+        data: { domain: 'still-active.example.com' },
+      });
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'dup@still-active.example.com',
+          name: '已啟用',
+          password: 'password123',
+        })
+        .expect(201);
+
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'dup@still-active.example.com',
+          name: '重複註冊',
+          password: 'password456',
+        })
+        .expect(409);
     });
   });
 
