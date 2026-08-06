@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthData } from '../state/auth';
 import { Button } from '../components/Button';
+import { Footer } from '../components/Footer';
 import { useToast } from '../components/Toast';
 import { UserPlus } from 'lucide-react';
 
@@ -33,7 +34,7 @@ export const Register: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 space-y-8">
         <div className="text-center">
           <div className="mx-auto bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mb-4">
@@ -77,6 +78,7 @@ export const Register: React.FC = () => {
           已經有帳號了？<Link to="/" className="text-blue-600 hover:underline">返回登入</Link>
         </p>
       </div>
+      <Footer />
     </div>
   );
 };

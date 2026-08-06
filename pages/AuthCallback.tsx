@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthData } from '../state/auth';
+import { Footer } from '../components/Footer';
 import { useToast } from '../components/Toast';
 
 export const AuthCallback: React.FC = () => {
@@ -53,8 +54,9 @@ export const AuthCallback: React.FC = () => {
   }, [searchParams, completeGoogleLogin, refreshCurrentUser, success, error, navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <p className="text-slate-600">登入中,請稍候…</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100">
+      <p className="text-slate-600 flex-1 flex items-center">登入中,請稍候…</p>
+      <Footer />
     </div>
   );
 };

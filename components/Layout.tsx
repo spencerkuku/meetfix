@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
+import { Footer } from './Footer';
 import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
 
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
@@ -357,8 +358,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       {/* Main Content */}
-      <main className={`flex-1 ${collapsed ? 'md:ml-[72px]' : 'md:ml-64'} p-4 md:p-8 mt-14 md:mt-0 overflow-x-hidden transition-[margin] duration-200`}>
-        {children}
+      <main className={`flex-1 flex flex-col ${collapsed ? 'md:ml-[72px]' : 'md:ml-64'} p-4 md:p-8 mt-14 md:mt-0 overflow-x-hidden transition-[margin] duration-200`}>
+        <div className="flex-1">{children}</div>
+        <Footer />
       </main>
 
       {/* Profile Modal */}
