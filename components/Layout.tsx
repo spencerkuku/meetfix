@@ -2,7 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthData } from '../state/auth';
-import { UserRole } from '../types';
+import { useBookingsData } from '../state/bookings';
+import { useRepairsData } from '../state/repairs';
+import { UserRole, RepairStatus } from '../types';
 import { getGoogleLinkUrl, getToken, changePassword } from '../services/auth';
 import { useToast } from './Toast';
 import {
@@ -30,8 +32,17 @@ import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../repor
 
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
+// Caps a nav badge's displayed number so a busy queue doesn't blow out the
+// sidebar's width — the exact count still matters below this, per the
+// pending-count pill each source page (Approvals.tsx, RepairManagement.tsx)
+// already shows.
+const MAX_BADGE_COUNT = 99;
+const badgeText = (count: number) => (count > MAX_BADGE_COUNT ? `${MAX_BADGE_COUNT}+` : String(count));
+
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, logout, updateProfile } = useAuthData();
+  const { bookings } = useBookingsData();
+  const { repairs } = useRepairsData();
   const location = useLocation();
   const navigate = useNavigate();
   const { error: showError, success: showSuccess } = useToast();
@@ -149,42 +160,55 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     },
   ];
 
+  // Reuses the same pending-count definitions each source page already
+  // shows (Approvals.tsx's 待審核 pill, RepairManagement.tsx's 待處理案件
+  // pill) — no separate counting logic, no polling: it's whatever's
+  // currently in BookingsProvider/RepairsProvider.
+  const pendingApprovalCount = bookings.filter(b => b.status === 'PENDING_APPROVAL').length;
+  const pendingRepairCount = repairs.filter(r => r.status === RepairStatus.PENDING).length;
+
   const managementItems = [
     {
       path: '/dashboard',
       label: '統計儀表板',
       icon: <LayoutDashboard size={20} />,
-      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN],
+      badgeCount: 0,
     },
     {
       path: '/repair-management',
       label: '報修作業中心',
       icon: <ClipboardList size={20} />,
-      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN],
+      badgeCount: pendingRepairCount,
     },
     {
       path: '/approvals',
       label: '預約審核',
       icon: <FileCheck size={20} />,
-      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN],
+      badgeCount: pendingApprovalCount,
     },
     {
       path: '/rooms',
       label: '會議室設定',
       icon: <DoorOpen size={20} />,
-      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN],
+      badgeCount: 0,
     },
     {
       path: '/admin',
       label: '系統設定',
       icon: <Settings size={20} />,
-      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN],
+      badgeCount: 0,
     },
     {
       path: '/audit-log',
       label: '稽核紀錄',
       icon: <History size={20} />,
-      roles: [UserRole.ADMIN]
+      roles: [UserRole.ADMIN],
+      badgeCount: 0,
     },
   ];
 
@@ -232,16 +256,32 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
           {managementItems.map((item) => {
              if (!hasAccess(item.roles)) return null;
+             const hasBadge = item.badgeCount > 0;
              return (
               <Link
                 key={item.path}
                 to={item.path}
                 className={navItemClass(item.path, isCollapsed)}
                 onClick={() => setMobileMenuOpen(false)}
-                title={isCollapsed ? item.label : undefined}
+                title={isCollapsed ? `${item.label}${hasBadge ? `（${item.badgeCount}）` : ''}` : undefined}
               >
-                {item.icon}
+                <span className="relative inline-flex">
+                  {item.icon}
+                  {hasBadge && isCollapsed && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-4 text-center"
+                    >
+                      {badgeText(item.badgeCount)}
+                    </span>
+                  )}
+                </span>
                 {!isCollapsed && <span>{item.label}</span>}
+                {!isCollapsed && hasBadge && (
+                  <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold leading-5 text-center">
+                    {badgeText(item.badgeCount)}
+                  </span>
+                )}
               </Link>
              );
           })}

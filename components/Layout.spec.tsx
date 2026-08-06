@@ -4,8 +4,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Layout } from './Layout';
 import { AuthProvider } from '../state/auth';
+import { BookingsProvider } from '../state/bookings';
+import { RepairsProvider } from '../state/repairs';
 import { ToastProvider } from './Toast';
-import { User, UserRole } from '../types';
+import { User, UserRole, Booking, RepairTicket, RepairStatus } from '../types';
 
 vi.mock('../services/auth', () => ({
   getToken: vi.fn(() => 'token'),
@@ -20,8 +22,30 @@ vi.mock('../services/auth', () => ({
   getGoogleLinkUrl: vi.fn(),
   changePassword: vi.fn(),
 }));
+vi.mock('../services/bookings', () => ({
+  fetchBookings: vi.fn(),
+  createBooking: vi.fn(),
+  updateBooking: vi.fn(),
+  deleteBooking: vi.fn(),
+  approveBooking: vi.fn(),
+  rejectBooking: vi.fn(),
+  revertBooking: vi.fn(),
+  fetchBookingApprovalHistory: vi.fn(),
+}));
+vi.mock('../services/repairs', () => ({
+  fetchRepairs: vi.fn(),
+  createRepairTicket: vi.fn(),
+  updateRepairTicket: vi.fn(),
+  updateRepairContent: vi.fn(),
+  deleteRepairTicket: vi.fn(),
+  fetchRepairCategories: vi.fn(),
+  createRepairCategory: vi.fn(),
+  deleteRepairCategory: vi.fn(),
+}));
 
 import * as authService from '../services/auth';
+import * as bookingsService from '../services/bookings';
+import * as repairsService from '../services/repairs';
 
 // jsdom in this project's test environment doesn't provide window.localStorage
 // (only needed here so far, since Layout reads/writes the sidebar-collapsed
@@ -53,9 +77,13 @@ function renderLayout() {
     <MemoryRouter>
       <ToastProvider>
         <AuthProvider>
-          <Layout>
-            <div>content</div>
-          </Layout>
+          <BookingsProvider>
+            <RepairsProvider>
+              <Layout>
+                <div>content</div>
+              </Layout>
+            </RepairsProvider>
+          </BookingsProvider>
         </AuthProvider>
       </ToastProvider>
     </MemoryRouter>,
@@ -71,6 +99,9 @@ async function openAccountSettings() {
 describe('Layout — Account Settings 報修人資料', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([]);
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([]);
+    vi.mocked(repairsService.fetchRepairCategories).mockResolvedValue([]);
   });
 
   it('renders the current class/phone when opening Account Settings', async () => {
@@ -129,5 +160,73 @@ describe('Layout — Account Settings 報修人資料', () => {
       ),
     );
     await screen.findByText('個人資料已更新');
+  });
+});
+
+function makeBooking(overrides: Partial<Booking> = {}): Booking {
+  return {
+    id: 'b1', roomId: 'r1', userId: 'u2', userName: 'Someone',
+    title: 'Sync', startTime: '2099-01-01T09:00:00.000Z', endTime: '2099-01-01T10:00:00.000Z',
+    status: 'PENDING_APPROVAL',
+    ...overrides,
+  };
+}
+
+function makeRepair(overrides: Partial<RepairTicket> = {}): RepairTicket {
+  return {
+    id: 'r1', location: '1F', userId: 'u2', userName: 'Someone',
+    description: 'Broken', category: 'Hardware', status: RepairStatus.PENDING,
+    createdAt: '2099-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('Layout — nav badges', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(repairsService.fetchRepairCategories).mockResolvedValue([]);
+  });
+
+  it('shows the pending-count badge on 報修作業中心 and 預約審核 for a FACILITY_MANAGER', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(makeUser({ role: UserRole.FACILITY_MANAGER }));
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([
+      makeBooking({ id: 'b1', status: 'PENDING_APPROVAL' }),
+      makeBooking({ id: 'b2', status: 'PENDING_APPROVAL' }),
+      makeBooking({ id: 'b3', status: 'CONFIRMED' }),
+    ]);
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
+      makeRepair({ id: 'r1', status: RepairStatus.PENDING }),
+    ]);
+
+    renderLayout();
+
+    const repairLink = await screen.findByRole('link', { name: /報修作業中心/ });
+    await waitFor(() => expect(repairLink).toHaveTextContent('1'));
+    const approvalsLink = await screen.findByRole('link', { name: /預約審核/ });
+    await waitFor(() => expect(approvalsLink).toHaveTextContent('2'));
+  });
+
+  it('shows no badge when there is nothing pending', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(makeUser({ role: UserRole.ADMIN }));
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([]);
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([]);
+
+    renderLayout();
+
+    const approvalsLink = await screen.findByRole('link', { name: '預約審核' });
+    await waitFor(() => expect(approvalsLink.textContent).toBe('預約審核'));
+  });
+
+  it('caps the badge at 99+ for a very large pending count', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(makeUser({ role: UserRole.ADMIN }));
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue(
+      Array.from({ length: 150 }, (_, i) => makeBooking({ id: `b${i}`, status: 'PENDING_APPROVAL' })),
+    );
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([]);
+
+    renderLayout();
+
+    const approvalsLink = await screen.findByRole('link', { name: /預約審核/ });
+    await waitFor(() => expect(approvalsLink).toHaveTextContent('99+'));
   });
 });
