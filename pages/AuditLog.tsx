@@ -13,6 +13,8 @@ const actionLabels: Record<AuditAction, string> = {
   ACCOUNT_SUSPENSION: '帳號停權',
   ACCOUNT_REACTIVATION: '帳號恢復使用',
   USER_DELETION: '使用者刪除',
+  REPAIR_EXPORT: '報修單匯出',
+  ACCOUNT_REJECTION: '帳號拒絕',
 };
 
 export const AuditLog: React.FC = () => {
