@@ -18,11 +18,11 @@ _Avoid_: Permission, Group
 The default role. Can create Bookings and submit Repair Tickets for themselves.
 
 **FACILITY_MANAGER (role)**:
-Handles both facility responsibilities at this school, since they're always held by the same staff member: can view and act on all Repair Tickets from a shared, unassigned queue (claims a ticket by moving its status forward — there is no explicit "assign to me" action; can also revert a ticket's status one step backward, e.g. to undo an accidental claim or reopen a ticket closed too soon — see Repair Status), and approves or rejects Bookings for Rooms that require approval.
+Handles both facility responsibilities at this school, since they're always held by the same staff member: can view and act on all Repair Tickets from a shared, unassigned queue (claims a ticket by moving its status forward — there is no explicit "assign to me" action; can also revert a ticket's status one step backward, e.g. to undo an accidental claim or reopen a ticket closed too soon — see Repair Status), and approves or rejects Bookings for Rooms that require approval. Also manages Rooms and Repair Categories, a responsibility shared with ADMIN.
 _Avoid_: Maintenance, Room Manager (the two separate roles this one replaces)
 
 **ADMIN (role)**:
-Manages Rooms, Repair Categories, Role assignment, the Auto-Approved Domain list, and Account Approval for Pending Accounts. Holds no special booking/repair authority beyond that.
+Manages Rooms, Repair Categories, Role assignment, the Auto-Approved Domain list, and Account Approval for Pending Accounts. Role assignment, the Auto-Approved Domain list, and Account Approval are ADMIN-exclusive; Rooms and Repair Categories are shared with FACILITY_MANAGER. Holds no special booking/repair authority beyond that.
 
 **Account**:
 The credential record backing a User's ability to log in — either a Google Workspace identity or a school-issued email + password pair. Two Users cannot share one Account; every Account maps to exactly one User.

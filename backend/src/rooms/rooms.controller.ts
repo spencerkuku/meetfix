@@ -39,7 +39,7 @@ export class RoomsController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   @UseInterceptors(FileInterceptor('photo', roomPhotoUploadOptions))
   async create(
     @Body() body: RoomFormBody,
@@ -64,7 +64,7 @@ export class RoomsController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   @UseInterceptors(FileInterceptor('photo', roomPhotoUploadOptions))
   async update(
     @Param('id') id: string,
@@ -82,7 +82,7 @@ export class RoomsController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   @HttpCode(204)
   async remove(@Param('id') id: string) {
     await this.roomsService.remove(id);

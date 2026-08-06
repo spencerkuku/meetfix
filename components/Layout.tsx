@@ -177,7 +177,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       path: '/admin',
       label: '系統設定',
       icon: <Settings size={20} />,
-      roles: [UserRole.ADMIN, UserRole.FACILITY_MANAGER]
+      roles: [UserRole.FACILITY_MANAGER, UserRole.ADMIN]
     },
     {
       path: '/audit-log',

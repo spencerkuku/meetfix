@@ -26,14 +26,14 @@ export class RepairCategoriesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   create(@Body() body: { name: string }) {
     return this.repairsService.createCategory(body.name);
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   @HttpCode(204)
   async remove(@Param('id') id: string) {
     await this.repairsService.removeCategory(id);
