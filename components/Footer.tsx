@@ -13,8 +13,7 @@ export const Footer: React.FC = () => {
         className="hover:text-slate-500 hover:underline"
       >
         傅盛祥
-      </a>{' '}
-      學長
+      </a>
     </footer>
   );
 };
