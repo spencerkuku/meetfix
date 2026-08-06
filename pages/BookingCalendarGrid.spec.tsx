@@ -45,7 +45,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof BookingCalenda
     isMobile: false,
     rooms: [room],
     bookings: [] as Booking[],
-    filterRoomId: 'ALL',
+    visibleRoomIds: 'ALL' as const,
     currentUser: user,
     onSelectSlot: vi.fn(),
     onOpenBooking: vi.fn(),
@@ -154,6 +154,53 @@ describe('BookingCalendarGrid — Month view', () => {
     fireEvent.click(getByText('Standup'));
     expect(onOpenBooking).toHaveBeenCalledWith(booking);
   });
+
+  it('shows the Room abbreviation tag on a Booking when a multi-Room subset is selected (ambiguous which Room)', () => {
+    const otherRoom: Room = { ...room, id: 'room-2', name: 'Other Room' };
+    const booking: Booking = {
+      id: 'b1',
+      roomId: room.id,
+      userId: user.id,
+      userName: user.name,
+      title: 'Standup',
+      startTime: new Date(FUTURE_DAY.getTime() + 60 * 60 * 1000).toISOString(),
+      endTime: new Date(FUTURE_DAY.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+      status: 'CONFIRMED',
+    };
+    const { getByText } = render(
+      <BookingCalendarGrid
+        {...baseProps({
+          view: 'MONTH',
+          rooms: [room, otherRoom],
+          bookings: [booking],
+          visibleRoomIds: [room.id, otherRoom.id],
+        })}
+      />,
+    );
+
+    // room.name is 'Test Room' — first two chars abbreviation is 'Te'.
+    expect(getByText('Te', { exact: false })).toBeTruthy();
+  });
+
+  it('hides the Room abbreviation tag when the subset resolves to exactly one Room', () => {
+    const booking: Booking = {
+      id: 'b1',
+      roomId: room.id,
+      userId: user.id,
+      userName: user.name,
+      title: 'Standup',
+      startTime: new Date(FUTURE_DAY.getTime() + 60 * 60 * 1000).toISOString(),
+      endTime: new Date(FUTURE_DAY.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+      status: 'CONFIRMED',
+    };
+    const { queryByText } = render(
+      <BookingCalendarGrid
+        {...baseProps({ view: 'MONTH', bookings: [booking], visibleRoomIds: [room.id] })}
+      />,
+    );
+
+    expect(queryByText('Te', { exact: false })).toBeNull();
+  });
 });
 
 describe('BookingCalendarGrid — touch gestures (Day view)', () => {
@@ -196,5 +243,48 @@ describe('BookingCalendarGrid — touch gestures (Day view)', () => {
     expect(onSelectSlot).not.toHaveBeenCalled();
     expect(onSwipeNext).toHaveBeenCalledTimes(1);
     expect(onSwipePrev).not.toHaveBeenCalled();
+  });
+});
+
+describe('BookingCalendarGrid — visibleRoomIds filtering (Week view)', () => {
+  const roomA: Room = { ...room, id: 'room-a', name: 'Room A' };
+  const roomB: Room = { ...room, id: 'room-b', name: 'Room B' };
+  const roomC: Room = { ...room, id: 'room-c', name: 'Room C' };
+  const allRooms = [roomA, roomB, roomC];
+
+  it('renders every Room column when visibleRoomIds is "ALL"', () => {
+    const { container } = render(
+      <BookingCalendarGrid {...baseProps({ view: 'WEEK', isMobile: true, rooms: allRooms, visibleRoomIds: 'ALL' })} />,
+    );
+
+    expect(cell(container, FUTURE_DAY, 4, roomA.id)).toBeTruthy();
+    expect(cell(container, FUTURE_DAY, 4, roomB.id)).toBeTruthy();
+    expect(cell(container, FUTURE_DAY, 4, roomC.id)).toBeTruthy();
+  });
+
+  it('renders only the Rooms named in a visibleRoomIds subset array', () => {
+    const { container, getByText, queryByText } = render(
+      <BookingCalendarGrid
+        {...baseProps({ view: 'WEEK', isMobile: true, rooms: allRooms, visibleRoomIds: [roomA.id, roomC.id] })}
+      />,
+    );
+
+    expect(cell(container, FUTURE_DAY, 4, roomA.id)).toBeTruthy();
+    expect(cell(container, FUTURE_DAY, 4, roomC.id)).toBeTruthy();
+    expect(() => cell(container, FUTURE_DAY, 4, roomB.id)).toThrow();
+
+    // Room sub-header only lists the selected Rooms.
+    expect(getByText(roomA.name)).toBeTruthy();
+    expect(getByText(roomC.name)).toBeTruthy();
+    expect(queryByText(roomB.name)).toBeNull();
+  });
+
+  it('shows the existing "no matching room" empty state when visibleRoomIds is an empty array', () => {
+    const { getByText, container } = render(
+      <BookingCalendarGrid {...baseProps({ view: 'WEEK', isMobile: true, rooms: allRooms, visibleRoomIds: [] })} />,
+    );
+
+    expect(getByText('找不到符合篩選條件的會議室')).toBeTruthy();
+    expect(container.querySelector('[data-cell-room]')).toBeNull();
   });
 });

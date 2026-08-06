@@ -9,7 +9,25 @@ import { useToast } from '../components/Toast';
 import { isActiveSlot, isDeletable } from './booking-eligibility';
 import { BookingCalendarGrid, CalendarSelection } from './BookingCalendarGrid';
 import { BookingFormModal, BookingFormTarget } from './BookingFormModal';
-import { ChevronLeft, ChevronRight, Plus, Filter, Clock, Calendar as CalendarIcon, List, Trash2, Eye } from 'lucide-react';
+import { RoomFilterMenu } from './RoomFilterMenu';
+import { ChevronLeft, ChevronRight, Plus, Clock, Calendar as CalendarIcon, List, Trash2, Eye } from 'lucide-react';
+
+// Persists the calendar's Room filter across visits so a User doesn't have
+// to re-narrow it down to their usual Rooms every time they open this page.
+const ROOM_FILTER_STORAGE_KEY = 'meetfix:bookingCalendar:selectedRoomIds';
+
+function loadStoredRoomFilter(): string[] | 'ALL' {
+  try {
+    const raw = localStorage.getItem(ROOM_FILTER_STORAGE_KEY);
+    if (!raw) return 'ALL';
+    const parsed = JSON.parse(raw);
+    if (parsed === 'ALL') return 'ALL';
+    if (Array.isArray(parsed) && parsed.every(id => typeof id === 'string')) return parsed;
+    return 'ALL';
+  } catch {
+    return 'ALL';
+  }
+}
 
 export const Bookings: React.FC = () => {
   const { currentUser } = useAuthData();
@@ -20,8 +38,33 @@ export const Bookings: React.FC = () => {
   const [view, setView] = useState<CalendarViewType>('WEEK');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Filter State
-  const [filterRoomId, setFilterRoomId] = useState<string>('ALL');
+  // Filter State — which Rooms are shown on the calendar. 'ALL' means no
+  // filtering (every Room); an array is an explicit subset, including the
+  // empty array (User deselected every Room). Persisted to localStorage so
+  // it survives across visits; see loadStoredRoomFilter above.
+  const [selectedRoomIds, setSelectedRoomIdsState] = useState<string[] | 'ALL'>(loadStoredRoomFilter);
+
+  const setSelectedRoomIds = (selection: string[] | 'ALL') => {
+    setSelectedRoomIdsState(selection);
+    try {
+      localStorage.setItem(ROOM_FILTER_STORAGE_KEY, JSON.stringify(selection));
+    } catch {
+      // Persistence is a convenience, not a requirement — ignore storage
+      // failures (private browsing, quota) and keep the in-memory selection.
+    }
+  };
+
+  // Once Rooms are loaded, drop any persisted Room id that no longer exists
+  // (the Room may have been deleted since the selection was last saved)
+  // rather than silently filtering the calendar down to nothing.
+  useEffect(() => {
+    if (selectedRoomIds === 'ALL' || rooms.length === 0) return;
+    const stillValidIds = selectedRoomIds.filter(id => rooms.some(r => r.id === id));
+    if (stillValidIds.length !== selectedRoomIds.length) {
+      setSelectedRoomIds(stillValidIds.length === rooms.length ? 'ALL' : stillValidIds);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rooms]);
 
   // RWD: below this width, WEEK view collapses to a single day (see
   // isSingleDayMode below) and swipe replaces the 7-day grid. Needed both
@@ -56,9 +99,9 @@ export const Bookings: React.FC = () => {
   // Filtered Bookings for Calendar rendering — same Slot-holding rule as
   // activeBookings above, further narrowed by the calendar's room filter.
   const displayedBookings = useMemo(() => {
-    if (filterRoomId === 'ALL') return activeBookings;
-    return activeBookings.filter(b => b.roomId === filterRoomId);
-  }, [activeBookings, filterRoomId]);
+    if (selectedRoomIds === 'ALL') return activeBookings;
+    return activeBookings.filter(b => selectedRoomIds.includes(b.roomId));
+  }, [activeBookings, selectedRoomIds]);
 
   // My History Bookings
   const myBookings = useMemo(() => {
@@ -92,7 +135,7 @@ export const Bookings: React.FC = () => {
       date: defaultDate,
       startTime: startTimeStr,
       endTime: endTimeStr,
-      roomId: roomId ?? (filterRoomId !== 'ALL' ? filterRoomId : undefined),
+      roomId: roomId ?? (selectedRoomIds !== 'ALL' && selectedRoomIds.length === 1 ? selectedRoomIds[0] : undefined),
     });
   };
 
@@ -152,19 +195,7 @@ export const Bookings: React.FC = () => {
         <div className="space-y-4 animate-fade-in">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center bg-white border rounded-lg px-3 py-1.5 shadow-sm">
-                        <Filter size={16} className="text-slate-400 mr-2" />
-                        <select
-                            value={filterRoomId}
-                            onChange={(e) => setFilterRoomId(e.target.value)}
-                            className="bg-transparent text-sm text-slate-700 outline-none border-none cursor-pointer min-w-[120px]"
-                        >
-                        <option value="ALL">所有會議室</option>
-                        {rooms.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                        </select>
-                    </div>
+                    <RoomFilterMenu rooms={rooms} selectedRoomIds={selectedRoomIds} onChange={setSelectedRoomIds} />
 
                     <div className="flex bg-white rounded-lg border p-1 shadow-sm">
                         {(['MONTH', 'WEEK', 'DAY'] as CalendarViewType[]).map((v) => (
@@ -207,7 +238,7 @@ export const Bookings: React.FC = () => {
                 isMobile={isMobile}
                 rooms={rooms}
                 bookings={displayedBookings}
-                filterRoomId={filterRoomId}
+                visibleRoomIds={selectedRoomIds}
                 currentUser={currentUser}
                 onSelectSlot={handleSelectSlot}
                 onOpenBooking={openEditModal}

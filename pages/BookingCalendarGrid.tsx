@@ -43,7 +43,7 @@ export interface BookingCalendarGridProps {
   isMobile: boolean;
   rooms: Room[];
   bookings: Booking[];
-  filterRoomId: string;
+  visibleRoomIds: string[] | 'ALL';
   currentUser: User | null;
   onSelectSlot: (selection: CalendarSelection) => void;
   onOpenBooking: (booking: Booking) => void;
@@ -64,7 +64,7 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
   isMobile,
   rooms,
   bookings: displayedBookings,
-  filterRoomId,
+  visibleRoomIds,
   currentUser,
   onSelectSlot,
   onOpenBooking,
@@ -248,6 +248,13 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
 
+    // Whether a Booking's Room is ambiguous from context alone — true
+    // whenever more than one Room could appear in a day cell, so the abbreviation
+    // tag is needed to tell them apart. False only when exactly one Room is
+    // in play (a single Room selected, or only one Room configured at all).
+    const roomCount = visibleRoomIds === 'ALL' ? rooms.length : visibleRoomIds.length;
+    const showRoomTag = roomCount > 1;
+
     const days = [];
     for (let i = 0; i < firstDay.getDay(); i++) {
       days.push(<div key={`pad-${i}`} className="h-16 md:h-24 bg-gray-50 border border-gray-100" />);
@@ -284,7 +291,7 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
                         ? 'bg-yellow-50 text-yellow-700 border-yellow-200 border-dashed'
                         : 'bg-blue-100 text-blue-800 border-blue-200'}`}
                 >
-                {filterRoomId === 'ALL' && <span className="font-bold mr-1">[{rooms.find(r => r.id === b.roomId)?.name.substring(0,2)}]</span>}
+                {showRoomTag && <span className="font-bold mr-1">[{rooms.find(r => r.id === b.roomId)?.name.substring(0,2)}]</span>}
                 {b.title}
               </div>
             ))}
@@ -322,8 +329,8 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
     // Per-Room columns: when the calendar's Room filter is ALL, each Room
     // gets its own column so a Booking in one Room's column can never block
     // drag-select in another Room's column at the same day/time. Filtering
-    // to a specific Room keeps the single-column layout as before.
-    const visibleRooms = filterRoomId === 'ALL' ? rooms : rooms.filter(r => r.id === filterRoomId);
+    // to a subset of Rooms (including exactly one) keeps only those columns.
+    const visibleRooms = visibleRoomIds === 'ALL' ? rooms : rooms.filter(r => visibleRoomIds.includes(r.id));
 
     // No Room to show a column for (Rooms still loading, fetch failed, or
     // none configured yet) — bail out before the grid, rather than reserving
