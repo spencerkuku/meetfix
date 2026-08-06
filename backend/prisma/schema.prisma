@@ -54,10 +54,11 @@ model User {
   userClass String?
   userPhone String?
 
-  account         Account?
-  bookings        Booking[]
-  repairTickets   RepairTicket[]
-  auditLogEntries AuditLogEntry[]
+  account          Account?
+  bookings         Booking[]
+  reviewedBookings Booking[]       @relation("BookingReviewer")
+  repairTickets    RepairTicket[]
+  auditLogEntries  AuditLogEntry[]
 }
 
 // Auto-Approved Domain: an email domain an Admin has pre-cleared. A PASSWORD
@@ -143,6 +144,17 @@ model Booking {
   // simply excluded from all reads. See issue #19.
   deletedAt   DateTime?
 
+  // Booking Approval review trail: set together by BookingsService.decide()
+  // (approve/reject) and cleared together by revert(). Both null for a
+  // Booking that has never been through a decision — including one that's
+  // CONFIRMED because its Room never required approval — which is how
+  // revert() tells "reviewed CONFIRMED" apart from "auto-confirmed
+  // CONFIRMED" (Room.requiresApproval alone can't, since it may have
+  // changed since the Booking was decided).
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewer     User?     @relation("BookingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
   @@index([roomId, startTime, endTime])
 }
 
@@ -209,6 +221,7 @@ enum AuditAction {
   USER_DELETION
   REPAIR_EXPORT
   ACCOUNT_REJECTION
+  BOOKING_REVERT
 }
 
 model AuditLogEntry {

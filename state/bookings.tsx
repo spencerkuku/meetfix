@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Booking } from '../types';
+import { Booking, AuditLogEntry } from '../types';
 import {
   fetchBookings,
   createBooking,
@@ -7,6 +7,8 @@ import {
   deleteBooking as deleteBookingApi,
   approveBooking as approveBookingApi,
   rejectBooking as rejectBookingApi,
+  revertBooking as revertBookingApi,
+  fetchBookingApprovalHistory,
   CreateBookingInput,
   UpdateBookingInput,
 } from '../services/bookings';
@@ -19,6 +21,8 @@ export interface BookingsData {
   deleteBooking: (id: string) => Promise<void>;
   approveBooking: (id: string) => Promise<void>;
   rejectBooking: (id: string) => Promise<void>;
+  revertBooking: (id: string) => Promise<void>;
+  fetchApprovalHistory: () => Promise<AuditLogEntry[]>;
 }
 
 const BookingsContext = createContext<BookingsData | undefined>(undefined);
@@ -66,8 +70,15 @@ export const BookingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setBookings(prev => prev.map(b => b.id === id ? booking : b));
   };
 
+  const revertBooking = async (id: string) => {
+    const booking = await revertBookingApi(id);
+    setBookings(prev => prev.map(b => b.id === id ? booking : b));
+  };
+
+  const fetchApprovalHistory = () => fetchBookingApprovalHistory();
+
   return (
-    <BookingsContext.Provider value={{ bookings, addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking }}>
+    <BookingsContext.Provider value={{ bookings, addBooking, updateBooking, deleteBooking, approveBooking, rejectBooking, revertBooking, fetchApprovalHistory }}>
       {children}
     </BookingsContext.Provider>
   );

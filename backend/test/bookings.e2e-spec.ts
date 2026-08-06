@@ -908,6 +908,199 @@ describe('Bookings (e2e)', () => {
     });
   });
 
+  describe('Booking Revert', () => {
+    async function createPending(): Promise<string> {
+      const slot = nextSlot();
+      const res = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'Needs approval', ...slot })
+        .expect(201);
+      const body = res.body as BookingResponse;
+      expect(body.status).toBe('PENDING_APPROVAL');
+      return body.id;
+    }
+
+    async function createDecided(
+      outcome: 'approve' | 'reject',
+    ): Promise<{ id: string; slot: { startTime: string; endTime: string } }> {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: `To ${outcome}`, ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      await apiRequest(app)
+        .patch(`/bookings/${id}/${outcome}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      return { id, slot };
+    }
+
+    it('FACILITY_MANAGER can revert a CONFIRMED (approved) Booking back to PENDING_APPROVAL', async () => {
+      const { id } = await createDecided('approve');
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+    });
+
+    it('FACILITY_MANAGER can revert a REJECTED Booking back to PENDING_APPROVAL', async () => {
+      const { id } = await createDecided('reject');
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+    });
+
+    it('ADMIN can also revert a decided Booking', async () => {
+      const { id } = await createDecided('approve');
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('PENDING_APPROVAL');
+    });
+
+    it('rejects revert by a User who is not FACILITY_MANAGER or ADMIN', async () => {
+      const { id } = await createDecided('approve');
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('rejects reverting a Booking that was never reviewed (auto-CONFIRMED on a non-approval Room)', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, title: 'Never reviewed', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+      expect((created.body as BookingResponse).status).toBe('CONFIRMED');
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(409);
+    });
+
+    it('rejects reverting a Booking that is still PENDING_APPROVAL', async () => {
+      const id = await createPending();
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(409);
+    });
+
+    it('blocks reverting a REJECTED Booking whose slot was taken by another Booking in the meantime', async () => {
+      const { id, slot } = await createDecided('reject');
+      // REJECTED doesn't hold the slot, so someone else can book it in the
+      // meantime — see ACTIVE_BOOKING_STATUSES.
+      await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${otherUserToken}`)
+        .send({
+          roomId: approvalRoomId,
+          title: 'Took the freed slot',
+          ...slot,
+        })
+        .expect(201);
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(409);
+    });
+
+    it('reverting to PENDING_APPROVAL clears the review trail so it can be decided again', async () => {
+      const { id } = await createDecided('approve');
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      const res = await apiRequest(app)
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect((res.body as BookingResponse).status).toBe('REJECTED');
+    });
+  });
+
+  describe('Booking Approval History', () => {
+    it('rejects unauthenticated requests', () => {
+      return apiRequest(app).get('/bookings/approval-history').expect(401);
+    });
+
+    it('rejects a User who is not FACILITY_MANAGER or ADMIN', () => {
+      return apiRequest(app)
+        .get('/bookings/approval-history')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('FACILITY_MANAGER can list approve/reject/revert entries, newest first, with no other Audit Action types mixed in', async () => {
+      const slot = nextSlot();
+      const created = await apiRequest(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: approvalRoomId, title: 'History test', ...slot })
+        .expect(201);
+      const id = (created.body as BookingResponse).id;
+
+      await apiRequest(app)
+        .patch(`/bookings/${id}/approve`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/bookings/${id}/reject`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const res = await apiRequest(app)
+        .get('/bookings/approval-history')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      const body = res.body as Array<{
+        action: string;
+        targetType: string;
+        targetId: string;
+        detail: string | null;
+        createdAt: string;
+      }>;
+      expect(
+        body.every((e) => ['BOOKING_APPROVAL', 'BOOKING_REVERT'].includes(e.action)),
+      ).toBe(true);
+      expect(body.every((e) => e.targetType === 'Booking')).toBe(true);
+
+      const forThisBooking = body.filter((e) => e.targetId === id);
+      expect(forThisBooking.map((e) => e.detail)).toEqual([
+        'Rejected',
+        'Reverted from CONFIRMED',
+        'Approved',
+      ]);
+      const timestamps = forThisBooking.map((e) =>
+        new Date(e.createdAt).getTime(),
+      );
+      expect(timestamps).toEqual([...timestamps].sort((a, b) => b - a));
+    });
+
+    it('ADMIN can also list Booking approval-history entries', () => {
+      return apiRequest(app)
+        .get('/bookings/approval-history')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+    });
+  });
+
   describe('Active Booking cap', () => {
     it('rejects creating a Booking once the caller already holds the maximum number of active Bookings', async () => {
       const capped = await tokenFor('capped-booker@school.edu.tw');

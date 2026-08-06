@@ -54,6 +54,10 @@ export interface Booking {
   startTime: string; // ISO string
   endTime: string;   // ISO string
   status: 'CONFIRMED' | 'CANCELLED' | 'PENDING_APPROVAL' | 'REJECTED';
+  // Set together by approve/reject, cleared together by revert — null for a
+  // Booking that's never been decided, including one CONFIRMED because its
+  // Room never required approval. Used to gate the 復原 (revert) action.
+  reviewedAt?: string | null;
 }
 
 export enum RepairStatus {
@@ -102,7 +106,7 @@ export interface AutoApprovedDomain {
   createdAt: string;
 }
 
-export type AuditAction = 'ROLE_CHANGE' | 'BOOKING_APPROVAL' | 'ACCOUNT_APPROVAL' | 'REPAIR_STATUS_CHANGE' | 'AUTO_APPROVED_DOMAIN_CHANGE' | 'ACCOUNT_SUSPENSION' | 'ACCOUNT_REACTIVATION' | 'USER_DELETION';
+export type AuditAction = 'ROLE_CHANGE' | 'BOOKING_APPROVAL' | 'BOOKING_REVERT' | 'ACCOUNT_APPROVAL' | 'REPAIR_STATUS_CHANGE' | 'AUTO_APPROVED_DOMAIN_CHANGE' | 'ACCOUNT_SUSPENSION' | 'ACCOUNT_REACTIVATION' | 'USER_DELETION';
 
 export interface AuditLogEntry {
   id: string;

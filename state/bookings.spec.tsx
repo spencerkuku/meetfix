@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { BookingsProvider, useBookingsData } from './bookings';
-import { User, UserRole, Booking } from '../types';
+import { User, UserRole, Booking, AuditLogEntry } from '../types';
 
 vi.mock('./auth', () => ({
   useAuthData: vi.fn(),
@@ -14,6 +14,8 @@ vi.mock('../services/bookings', () => ({
   deleteBooking: vi.fn(),
   approveBooking: vi.fn(),
   rejectBooking: vi.fn(),
+  revertBooking: vi.fn(),
+  fetchBookingApprovalHistory: vi.fn(),
 }));
 
 import { useAuthData } from './auth';
@@ -78,5 +80,38 @@ describe('BookingsProvider / useBookingsData', () => {
     });
 
     expect(result.current.bookings[0].status).toBe('CONFIRMED');
+  });
+
+  it('revertBooking replaces the Booking with the server response', async () => {
+    vi.mocked(useAuthData).mockReturnValue({ currentUser: user } as ReturnType<typeof useAuthData>);
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([{ ...booking, status: 'REJECTED' }]);
+    vi.mocked(bookingsService.revertBooking).mockResolvedValue({ ...booking, status: 'PENDING_APPROVAL' });
+
+    const { result } = renderHook(() => useBookingsData(), { wrapper });
+    await waitFor(() => expect(result.current.bookings).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.revertBooking('b1');
+    });
+
+    expect(result.current.bookings[0].status).toBe('PENDING_APPROVAL');
+    expect(bookingsService.revertBooking).toHaveBeenCalledWith('b1');
+  });
+
+  it('fetchApprovalHistory delegates to the service and returns its result', async () => {
+    vi.mocked(useAuthData).mockReturnValue({ currentUser: user } as ReturnType<typeof useAuthData>);
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([]);
+    const entries: AuditLogEntry[] = [{
+      id: 'e1', actorId: 'u2', actorName: 'Manager', actorEmail: 'm@school.edu',
+      action: 'BOOKING_APPROVAL', targetType: 'Booking', targetId: 'b1',
+      detail: 'Approved', createdAt: '2099-01-01T00:00:00.000Z',
+    }];
+    vi.mocked(bookingsService.fetchBookingApprovalHistory).mockResolvedValue(entries);
+
+    const { result } = renderHook(() => useBookingsData(), { wrapper });
+    await waitFor(() => expect(result.current.bookings).toEqual([]));
+
+    const history = await result.current.fetchApprovalHistory();
+    expect(history).toEqual(entries);
   });
 });

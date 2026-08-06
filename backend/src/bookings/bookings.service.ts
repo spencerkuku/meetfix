@@ -72,6 +72,39 @@ export class BookingsService {
     }
   }
 
+  // Slot Conflict: shared by create(), update()'s reschedule path, and
+  // revert() — any existing Booking on this Room that overlaps and is
+  // still CONFIRMED or PENDING_APPROVAL blocks the request. See CONTEXT.md.
+  // `excludeBookingId` lets update()/revert() exclude the Booking's own
+  // current row from the check.
+  private async assertNoSlotConflict(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+    startTime: Date,
+    endTime: Date,
+    excludeBookingId?: string,
+  ) {
+    const conflict = await tx.booking.findFirst({
+      where: {
+        roomId,
+        status: { in: ACTIVE_BOOKING_STATUSES },
+        deletedAt: null,
+        startTime: { lt: endTime },
+        endTime: { gt: startTime },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+    });
+    if (conflict) {
+      throw new ConflictException(
+        'This Room is already booked for an overlapping time range',
+      );
+    }
+  }
+
+  findApprovalHistory() {
+    return this.audit.findBookingHistory();
+  }
+
   async findAll(): Promise<BookingWithUserName[]> {
     const bookings = await this.prisma.booking.findMany({
       where: { deletedAt: null },
@@ -122,23 +155,7 @@ export class BookingsService {
       const created = await this.prisma.$transaction(
         async (tx) => {
           await this.assertUnderActiveBookingCap(tx, userId);
-          // Slot Conflict: any existing Booking on this Room that overlaps
-          // and is still CONFIRMED or PENDING_APPROVAL blocks this request.
-          // See CONTEXT.md.
-          const conflict = await tx.booking.findFirst({
-            where: {
-              roomId: dto.roomId,
-              status: { in: ACTIVE_BOOKING_STATUSES },
-              deletedAt: null,
-              startTime: { lt: endTime },
-              endTime: { gt: startTime },
-            },
-          });
-          if (conflict) {
-            throw new ConflictException(
-              'This Room is already booked for an overlapping time range',
-            );
-          }
+          await this.assertNoSlotConflict(tx, dto.roomId, startTime, endTime);
           return tx.booking.create({
             data: {
               roomId: dto.roomId,
@@ -249,23 +266,7 @@ export class BookingsService {
             // this only ever matters if a concurrent request changed the
             // caller's count between our initial read and here.
             await this.assertUnderActiveBookingCap(tx, userId, id);
-            // Same Slot Conflict rule as create(), excluding this Booking's
-            // own current slot.
-            const conflict = await tx.booking.findFirst({
-              where: {
-                id: { not: id },
-                roomId,
-                status: { in: ACTIVE_BOOKING_STATUSES },
-                deletedAt: null,
-                startTime: { lt: endTime },
-                endTime: { gt: startTime },
-              },
-            });
-            if (conflict) {
-              throw new ConflictException(
-                'This Room is already booked for an overlapping time range',
-              );
-            }
+            await this.assertNoSlotConflict(tx, roomId, startTime, endTime, id);
           }
           // Conditional on the status we read (not just id), same guard
           // decide()/remove() already use — closes the race where a
@@ -368,7 +369,11 @@ export class BookingsService {
             status: BookingStatus.PENDING_APPROVAL,
             deletedAt: null,
           },
-          data: { status: outcome },
+          data: {
+            status: outcome,
+            reviewedAt: new Date(),
+            reviewedById: actorId,
+          },
         });
         if (result.count === 0) {
           throw new ConflictException(
@@ -389,5 +394,87 @@ export class BookingsService {
       },
     );
     return withUserName(updated);
+  }
+
+  // Booking Revert: undoes a decide() outcome, sending a reviewed
+  // CONFIRMED/REJECTED Booking back to PENDING_APPROVAL for re-decision.
+  // Eligibility is gated on `reviewedAt` (not status/Room state) — that's
+  // the only way to tell a reviewed CONFIRMED apart from one that was
+  // auto-CONFIRMED because its Room never required approval, since
+  // Room.requiresApproval may have changed since the decision was made.
+  async revert(id: string, actorId: string): Promise<BookingWithUserName> {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking || booking.deletedAt) {
+      throw new NotFoundException('Booking not found');
+    }
+    try {
+      const { booking: updated } = await this.audit.runAuditedTransaction(
+        async (tx) => {
+          const current = await tx.booking.findUniqueOrThrow({
+            where: { id },
+          });
+          if (
+            current.deletedAt ||
+            current.reviewedAt === null ||
+            (current.status !== BookingStatus.CONFIRMED &&
+              current.status !== BookingStatus.REJECTED)
+          ) {
+            throw new ConflictException(
+              'Only a reviewed CONFIRMED or REJECTED Booking can be reverted',
+            );
+          }
+          const previousStatus = current.status;
+          // REJECTED isn't in ACTIVE_BOOKING_STATUSES, so it doesn't hold
+          // the Room's slot — someone else may have booked it since. Re-run
+          // the same Slot Conflict check create() uses before reviving it
+          // as PENDING_APPROVAL, which does hold the slot.
+          if (previousStatus === BookingStatus.REJECTED) {
+            await this.assertNoSlotConflict(
+              tx,
+              current.roomId,
+              current.startTime,
+              current.endTime,
+              id,
+            );
+          }
+          const result = await tx.booking.updateMany({
+            where: { id, status: previousStatus, deletedAt: null },
+            data: {
+              status: BookingStatus.PENDING_APPROVAL,
+              reviewedAt: null,
+              reviewedById: null,
+            },
+          });
+          if (result.count === 0) {
+            throw new ConflictException(
+              'This Booking was changed concurrently — please retry',
+            );
+          }
+          return {
+            booking: await tx.booking.findUniqueOrThrow({
+              where: { id },
+              include: { user: true },
+            }),
+            previousStatus,
+          };
+        },
+        ({ previousStatus }) => ({
+          actorId,
+          action: AuditAction.BOOKING_REVERT,
+          targetType: 'Booking',
+          targetId: id,
+          detail: `Reverted from ${previousStatus}`,
+        }),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      return withUserName(updated);
+    } catch (err) {
+      if (isSerializationFailure(err)) {
+        throw new ConflictException(
+          'This Room is already booked for an overlapping time range',
+        );
+      }
+      throw err;
+    }
   }
 }

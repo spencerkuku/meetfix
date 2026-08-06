@@ -31,6 +31,13 @@ export class BookingsController {
     return this.bookingsService.findAll();
   }
 
+  @Get('approval-history')
+  @UseGuards(RolesGuard)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
+  approvalHistory() {
+    return this.bookingsService.findApprovalHistory();
+  }
+
   // Rate limited: room availability is a shared, contended resource — an
   // unthrottled create() let any USER script permanent room-slot
   // monopolization. Looser than the auth endpoints' 5/60s, since ordinary
@@ -77,5 +84,12 @@ export class BookingsController {
   @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
   reject(@CurrentUser() user: User, @Param('id') id: string) {
     return this.bookingsService.reject(id, user.id);
+  }
+
+  @Patch(':id/revert')
+  @UseGuards(RolesGuard)
+  @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
+  revert(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.bookingsService.revert(id, user.id);
   }
 }

@@ -1,4 +1,4 @@
-import { Booking } from '../types';
+import { Booking, AuditLogEntry } from '../types';
 import { API_BASE_URL, authHeaders } from './http';
 
 export interface CreateBookingInput {
@@ -74,5 +74,26 @@ export async function rejectBooking(id: string): Promise<Booking> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to reject booking');
+  return res.json();
+}
+
+export class BookingRevertConflictError extends Error {}
+
+export async function revertBooking(id: string): Promise<Booking> {
+  const res = await fetch(`${API_BASE_URL}/bookings/${id}/revert`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+  });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => null) as { message?: string } | null;
+    throw new BookingRevertConflictError(body?.message ?? 'This Booking could not be reverted');
+  }
+  if (!res.ok) throw new Error('Failed to revert booking');
+  return res.json();
+}
+
+export async function fetchBookingApprovalHistory(): Promise<AuditLogEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/bookings/approval-history`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch booking approval history');
   return res.json();
 }

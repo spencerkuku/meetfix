@@ -1,16 +1,34 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useBookingsData } from '../state/bookings';
 import { useRoomsData } from '../state/rooms';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
-import { CheckCircle2, XCircle, Clock, User, Calendar, Monitor } from 'lucide-react';
+import { AuditLogEntry } from '../types';
+import { BookingRevertConflictError } from '../services/bookings';
+import { CheckCircle2, XCircle, Clock, User, Calendar, Monitor, RotateCcw, History as HistoryIcon } from 'lucide-react';
+
+const HISTORY_ACTION_LABEL: Record<string, string> = {
+  Approved: '核准',
+  Rejected: '拒絕',
+};
+
+function historyDetailLabel(detail: string | null | undefined): string {
+  if (!detail) return '—';
+  if (detail in HISTORY_ACTION_LABEL) return HISTORY_ACTION_LABEL[detail];
+  if (detail.startsWith('Reverted from ')) {
+    const from = detail.replace('Reverted from ', '');
+    return `復原（原為${from === 'CONFIRMED' ? '已核准' : '已拒絕'}）`;
+  }
+  return detail;
+}
 
 export const Approvals: React.FC = () => {
-  const { bookings, approveBooking, rejectBooking } = useBookingsData();
+  const { bookings, approveBooking, rejectBooking, revertBooking, fetchApprovalHistory } = useBookingsData();
   const { rooms } = useRoomsData();
   const { success, info, error } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY'>('PENDING');
 
   const pendingBookings = useMemo(() => {
     return bookings.filter(b => b.status === 'PENDING_APPROVAL');
@@ -41,6 +59,65 @@ export const Approvals: React.FC = () => {
     }
   };
 
+  const handleRevert = async (id: string) => {
+    if (!window.confirm("確定要將此預約復原為待審核嗎？")) return;
+    setBusyId(id);
+    try {
+      await revertBooking(id);
+      info("預約已復原為待審核");
+    } catch (err) {
+      if (err instanceof BookingRevertConflictError) {
+        error(err.message);
+      } else {
+        error("復原失敗,請稍後再試");
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // History rows: entries where the current Booking is still CONFIRMED/
+  // REJECTED with a matching reviewedAt get a 復原 button — but only on the
+  // most recent entry for that Booking (earlier in the list, since it's
+  // newest-first), so a Booking that's been decided more than once doesn't
+  // show the action on stale rows.
+  const [history, setHistory] = useState<AuditLogEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'HISTORY') return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(false);
+    fetchApprovalHistory()
+      .then(entries => { if (!cancelled) setHistory(entries); })
+      .catch(() => { if (!cancelled) setHistoryError(true); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, fetchApprovalHistory]);
+
+  // history is newest-first — mark only the first (most recent) row per
+  // Booking so a Booking decided more than once doesn't show 復原 on its
+  // older, superseded rows too.
+  const isLatestRowForBooking = useMemo(() => {
+    const seen = new Set<string>();
+    return history.map(entry => {
+      const isLatest = !seen.has(entry.targetId);
+      seen.add(entry.targetId);
+      return isLatest;
+    });
+  }, [history]);
+
+  const canRevert = (bookingId: string) => {
+    const booking = bookings.find(b => b.id === bookingId);
+    return (
+      !!booking &&
+      !!booking.reviewedAt &&
+      (booking.status === 'CONFIRMED' || booking.status === 'REJECTED')
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -53,7 +130,69 @@ export const Approvals: React.FC = () => {
         </div>
       </div>
 
-      {pendingBookings.length === 0 ? (
+      <div className="flex items-center gap-4 border-b border-gray-200">
+        {(['PENDING', 'HISTORY'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            {tab === 'PENDING' ? '待審核' : '審核紀錄'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'HISTORY' ? (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {historyLoading ? (
+            <div className="p-12 text-center text-slate-400">載入中…</div>
+          ) : historyError ? (
+            <div className="p-12 text-center text-red-500">載入審核紀錄失敗，請稍後再試</div>
+          ) : history.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center">
+              <HistoryIcon size={32} className="mb-3 text-slate-300" />
+              目前沒有審核紀錄
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-left">
+                <tr>
+                  <th className="px-4 py-2 font-medium">預約標題</th>
+                  <th className="px-4 py-2 font-medium">動作</th>
+                  <th className="px-4 py-2 font-medium">審核者</th>
+                  <th className="px-4 py-2 font-medium">時間</th>
+                  <th className="px-4 py-2 font-medium" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {history.map((entry, index) => {
+                  const booking = bookings.find(b => b.id === entry.targetId);
+                  return (
+                    <tr key={entry.id}>
+                      <td className="px-4 py-2 text-slate-700">{booking?.title ?? entry.targetId}</td>
+                      <td className="px-4 py-2 text-slate-700">{historyDetailLabel(entry.detail)}</td>
+                      <td className="px-4 py-2 text-slate-500">{entry.actorName}</td>
+                      <td className="px-4 py-2 text-slate-500">{new Date(entry.createdAt).toLocaleString('zh-TW')}</td>
+                      <td className="px-4 py-2 text-right">
+                        {isLatestRowForBooking[index] && canRevert(entry.targetId) && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busyId === entry.targetId}
+                            onClick={() => handleRevert(entry.targetId)}
+                          >
+                            <RotateCcw size={14} className="mr-1" /> 復原
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : pendingBookings.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-slate-400 flex flex-col items-center animate-fade-in">
             <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-4">
                 <CheckCircle2 size={32} className="text-green-500"/>

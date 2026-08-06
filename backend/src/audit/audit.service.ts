@@ -91,4 +91,20 @@ export class AuditService {
     });
     return entries.map(toAuditLogEntryResponse);
   }
+
+  // Booking Approval history: scoped to just BOOKING_APPROVAL/BOOKING_REVERT
+  // entries so a FACILITY_MANAGER (who can't see the full Audit Log —
+  // findAll() above is ADMIN-only) still gets a record of who approved,
+  // rejected, or reverted a Booking and when.
+  async findBookingHistory() {
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: {
+        targetType: 'Booking',
+        action: { in: [AuditAction.BOOKING_APPROVAL, AuditAction.BOOKING_REVERT] },
+      },
+      include: { actor: { select: { name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return entries.map(toAuditLogEntryResponse);
+  }
 }
