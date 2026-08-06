@@ -26,6 +26,7 @@ const category: RepairCategory = { id: 'c1', name: '硬體設備' };
 const ticket: RepairTicket = {
   id: 't1', location: 'A101', category: '硬體設備', description: 'broken',
   status: RepairStatus.PENDING, userName: 'Test User', userId: 'u1', createdAt: '2026-01-01T00:00:00.000Z',
+  resolvedByName: null,
 };
 
 function wrapper({ children }: { children: React.ReactNode }) {

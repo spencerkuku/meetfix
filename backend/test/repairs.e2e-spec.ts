@@ -31,6 +31,7 @@ interface RepairTicketResponse {
   userId: string;
   userPhone: string | null;
   userClass: string | null;
+  resolvedByName: string | null;
 }
 
 interface RepairCategoryResponse {
@@ -486,6 +487,82 @@ describe('Repairs (e2e)', () => {
       expect(body.adminReply).toBe('正在調度零件');
       expect(body.status).toBe('PENDING');
     });
+
+    it('resolvedByName is null for a ticket that has not been completed', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      const listing = await apiRequest(app)
+        .get('/repairs')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      const ticket = (listing.body as RepairTicketResponse[]).find(
+        (t) => t.id === id,
+      );
+      expect(ticket?.resolvedByName).toBeNull();
+    });
+
+    it('resolvedByName is the FACILITY_MANAGER who marked the ticket COMPLETED', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+
+      const listing = await apiRequest(app)
+        .get('/repairs')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      const ticket = (listing.body as RepairTicketResponse[]).find(
+        (t) => t.id === id,
+      );
+      expect(ticket?.resolvedByName).toBe('repairfacility@school.edu.tw');
+    });
+
+    it('resolvedByName reflects the most recent completer after a revert and re-completion by someone else', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+      // Revert back to IN_PROGRESS, then have a different actor (ADMIN) mark
+      // it COMPLETED again — the latest completer should win.
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+
+      const listing = await apiRequest(app)
+        .get('/repairs')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+      const ticket = (listing.body as RepairTicketResponse[]).find(
+        (t) => t.id === id,
+      );
+      expect(ticket?.resolvedByName).toBe('repairadmin@school.edu.tw');
+    });
   });
 
   describe('Repair Ticket editing + deletion (#25)', () => {
@@ -737,7 +814,7 @@ describe('Repairs (e2e)', () => {
       expect(res.headers['content-type']).toContain('text/csv');
       expect(res.headers['content-disposition']).toContain('attachment');
       expect(res.text.charCodeAt(0)).toBe(0xfeff);
-      expect(res.text).toContain('地點,分類,描述,狀態,管理員回覆,建立時間');
+      expect(res.text).toContain('地點,分類,描述,狀態,維修人員,管理員回覆,建立時間');
       expect(res.text).toContain('匯出測試地點 A');
       expect(res.text).toContain('待處理');
       // Reporter PII (name/class/phone) is deliberately excluded from the
@@ -754,6 +831,32 @@ describe('Repairs (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
       expect(res.text).toContain('匯出測試地點 ADMIN');
+    });
+
+    it('populates 維修人員 for a completed ticket and leaves it blank for a pending one', async () => {
+      const completedId = await createTicket('匯出測試已完成單');
+      await apiRequest(app)
+        .patch(`/repairs/${completedId}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+      await apiRequest(app)
+        .patch(`/repairs/${completedId}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(200);
+      await createTicket('匯出測試待處理單');
+
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      const rows = res.text.split('\r\n');
+      const completedRow = rows.find((r) => r.includes('匯出測試已完成單'));
+      const pendingRow = rows.find((r) => r.includes('匯出測試待處理單'));
+      expect(completedRow).toContain('repairfacility@school.edu.tw');
+      expect(pendingRow).toContain('待處理,,'); // 狀態,維修人員(空白),管理員回覆(空白)
     });
 
     it('filters exported tickets by createdAt date range, inclusive of the full end day', async () => {

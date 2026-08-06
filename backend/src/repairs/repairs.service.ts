@@ -41,7 +41,19 @@ const PREV_STATUS: Record<RepairStatus, RepairStatus | undefined> = {
   [RepairStatus.COMPLETED]: RepairStatus.IN_PROGRESS,
 };
 
-export type RepairTicketWithUserName = RepairTicket & { userName: string };
+export type RepairTicketWithUserName = RepairTicket & {
+  userName: string;
+  resolvedByName: string | null;
+};
+
+// Shared by the two call sites where a ticket can only ever be PENDING
+// (create) — it can't have a resolver yet, so there's no need to query
+// findResolvedByNames() for a single-ticket null result.
+function withNoResolver<T extends { user: { name: string } }>(
+  ticket: T,
+): ReturnType<typeof withUserName<T>> & { resolvedByName: null } {
+  return { ...withUserName(ticket), resolvedByName: null };
+}
 
 @Injectable()
 export class RepairsService {
@@ -59,8 +71,12 @@ export class RepairsService {
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { name: true } } },
     });
+    const resolvedByNames = await this.findResolvedByNames(tickets);
     return tickets.map((ticket) => {
-      const withName = withUserName(ticket);
+      const withName = {
+        ...withUserName(ticket),
+        resolvedByName: resolvedByNames.get(ticket.id) ?? null,
+      };
       if (canSeeReporterDetails(callerRole, callerId, ticket.userId)) {
         return withName;
       }
@@ -71,6 +87,45 @@ export class RepairsService {
         userName: maskName(withName.userName),
       };
     });
+  }
+
+  // "維修人員" — whoever performed the most recent status transition into
+  // COMPLETED, per Repair Ticket, read from the Audit Log Entry trail
+  // rather than a dedicated column: CONTEXT.md is explicit that there is no
+  // per-ticket assignee field (any FACILITY_MANAGER/ADMIN can pick up any
+  // ticket from the shared queue), and the audit trail already holds this
+  // exact "who did what, when" history. Only COMPLETED tickets have an
+  // entry; a ticket completed, reverted, then completed again by someone
+  // else resolves to the latest completer. Mirrors the actor?.name ??
+  // actorName fallback in AuditService for a deleted actor's User row.
+  private async findResolvedByNames(
+    tickets: Pick<RepairTicket, 'id' | 'status'>[],
+  ): Promise<Map<string, string>> {
+    const completedIds = tickets
+      .filter((ticket) => ticket.status === RepairStatus.COMPLETED)
+      .map((ticket) => ticket.id);
+    if (completedIds.length === 0) return new Map();
+
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: {
+        targetType: 'RepairTicket',
+        targetId: { in: completedIds },
+        action: AuditAction.REPAIR_STATUS_CHANGE,
+        detail: { endsWith: 'to COMPLETED' },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: { actor: { select: { name: true } } },
+    });
+
+    const resolvedByNames = new Map<string, string>();
+    for (const entry of entries) {
+      if (resolvedByNames.has(entry.targetId)) continue; // already the latest
+      resolvedByNames.set(
+        entry.targetId,
+        entry.actor?.name ?? entry.actorName ?? '已刪除使用者',
+      );
+    }
+    return resolvedByNames;
   }
 
   async create(
@@ -105,7 +160,7 @@ export class RepairsService {
         data: { userClass: dto.userClass, userPhone: dto.userPhone },
       }),
     ]);
-    return withUserName(created);
+    return withNoResolver(created);
   }
 
   async updateStatus(
@@ -153,7 +208,11 @@ export class RepairsService {
           }
         : null,
     );
-    return withUserName(updated);
+    const resolvedByNames = await this.findResolvedByNames([updated]);
+    return {
+      ...withUserName(updated),
+      resolvedByName: resolvedByNames.get(updated.id) ?? null,
+    };
   }
 
   // Reporter-side content edit — distinct from updateStatus() above (which
@@ -222,7 +281,7 @@ export class RepairsService {
       where: { id },
       include: { user: true },
     });
-    return withUserName(updated);
+    return withNoResolver(updated);
   }
 
   // Soft-deletes a still-PENDING Repair Ticket. A genuinely new capability —
@@ -289,6 +348,7 @@ export class RepairsService {
     to?: Date,
   ): Promise<{ csv: string; count: number }> {
     const tickets = await this.findForExport(from, to);
+    const resolvedByNames = await this.findResolvedByNames(tickets);
     await this.audit.record(
       actorId,
       AuditAction.REPAIR_EXPORT,
@@ -301,7 +361,10 @@ export class RepairsService {
         actorRole,
       }),
     );
-    return { csv: buildRepairExportCsv(tickets), count: tickets.length };
+    return {
+      csv: buildRepairExportCsv(tickets, resolvedByNames),
+      count: tickets.length,
+    };
   }
 
   findAllCategories() {

@@ -84,6 +84,7 @@ export interface RepairTicket {
   status: RepairStatus;
   createdAt: string;
   adminReply?: string;
+  resolvedByName: string | null; // whoever most recently marked it COMPLETED; null until then.
 }
 
 export interface PendingAccount {

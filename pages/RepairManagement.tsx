@@ -6,7 +6,7 @@ import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { nextRepairStatus, revertRepairStatus, RepairStatusValue } from 'repair-visibility';
 import { exportRepairsCsv } from '../services/repairs';
-import { CheckCircle, Download, Image as ImageIcon, Info, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn } from 'lucide-react';
+import { CheckCircle, Download, Image as ImageIcon, Info, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn, Wrench } from 'lucide-react';
 
 // One badge style per status — shared everywhere so PENDING/IN_PROGRESS/
 // COMPLETED read consistently (previously IN_PROGRESS and COMPLETED shared
@@ -464,6 +464,12 @@ export const RepairManagement: React.FC = () => {
                 <div className="flex items-center gap-1"><User size={14}/> {viewingTicket.userName} {viewingTicket.userClass && `(${viewingTicket.userClass})`}</div>
                 {viewingTicket.userPhone && <div className="flex items-center gap-1 text-blue-700 font-mono"><Phone size={14}/> {viewingTicket.userPhone}</div>}
               </div>
+
+              {viewingTicket.resolvedByName && (
+                <div className="flex items-center gap-1 text-sm text-slate-600">
+                  <Wrench size={14}/> 維修人員：{viewingTicket.resolvedByName}
+                </div>
+              )}
 
               {/* Status Actions */}
               <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">

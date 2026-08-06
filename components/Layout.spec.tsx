@@ -176,7 +176,7 @@ function makeRepair(overrides: Partial<RepairTicket> = {}): RepairTicket {
   return {
     id: 'r1', location: '1F', userId: 'u2', userName: 'Someone',
     description: 'Broken', category: 'Hardware', status: RepairStatus.PENDING,
-    createdAt: '2099-01-01T00:00:00.000Z',
+    createdAt: '2099-01-01T00:00:00.000Z', resolvedByName: null,
     ...overrides,
   };
 }

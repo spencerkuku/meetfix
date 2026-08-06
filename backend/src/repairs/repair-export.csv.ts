@@ -5,7 +5,7 @@ import { RepairStatus, RepairTicket } from '@prisma/client';
 // CONTEXT.md's canSeeReporterDetails / repair-visibility for why that PII
 // is normally visible to FACILITY_MANAGER/ADMIN in-app but is kept out of a
 // downloadable file that can leave the system.
-const HEADERS = ['地點', '分類', '描述', '狀態', '管理員回覆', '建立時間'];
+const HEADERS = ['地點', '分類', '描述', '狀態', '維修人員', '管理員回覆', '建立時間'];
 
 const STATUS_LABEL: Record<RepairStatus, string> = {
   [RepairStatus.PENDING]: '待處理',
@@ -17,12 +17,18 @@ function escapeCsvField(value: string): string {
   return /["\n\r,]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-function toRow(ticket: RepairTicket): string[] {
+// 維修人員 — blank until the ticket has actually been marked COMPLETED; see
+// RepairsService.findResolvedByNames for how it's resolved.
+function toRow(
+  ticket: RepairTicket,
+  resolvedByNames: Map<string, string>,
+): string[] {
   return [
     ticket.location,
     ticket.category,
     ticket.description,
     STATUS_LABEL[ticket.status],
+    resolvedByNames.get(ticket.id) ?? '',
     ticket.adminReply ?? '',
     ticket.createdAt.toISOString(),
   ];
@@ -31,9 +37,13 @@ function toRow(ticket: RepairTicket): string[] {
 // A UTF-8 BOM prefix + CRLF line endings — required for the file to render
 // Chinese headers/content correctly (rather than mojibake) when opened
 // directly in Excel, which is the primary consumer of this export.
-export function buildRepairExportCsv(tickets: RepairTicket[]): string {
-  const lines = [HEADERS, ...tickets.map(toRow)].map((row) =>
-    row.map(escapeCsvField).join(','),
-  );
+export function buildRepairExportCsv(
+  tickets: RepairTicket[],
+  resolvedByNames: Map<string, string>,
+): string {
+  const lines = [
+    HEADERS,
+    ...tickets.map((ticket) => toRow(ticket, resolvedByNames)),
+  ].map((row) => row.map(escapeCsvField).join(','));
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
