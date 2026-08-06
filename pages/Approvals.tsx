@@ -6,12 +6,21 @@ import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { AuditLogEntry } from '../types';
 import { BookingRevertConflictError } from '../services/bookings';
-import { CheckCircle2, XCircle, Clock, User, Calendar, Monitor, RotateCcw, History as HistoryIcon } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, User, Calendar, DoorOpen, RotateCcw, History as HistoryIcon } from 'lucide-react';
 
 const HISTORY_ACTION_LABEL: Record<string, string> = {
   Approved: '核准',
   Rejected: '拒絕',
 };
+
+function formatDuration(startTime: string, endTime: string): string {
+  const minutes = Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000);
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours === 0) return `${remainder} 分鐘`;
+  if (remainder === 0) return `${hours} 小時`;
+  return `${hours} 小時 ${remainder} 分鐘`;
+}
 
 function historyDetailLabel(detail: string | null | undefined): string {
   if (!detail) return '—';
@@ -28,6 +37,10 @@ export const Approvals: React.FC = () => {
   const { rooms } = useRoomsData();
   const { success, info, error } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Which button on the busy card is the one actually in flight — busyId
+  // alone disables both 核准/拒絕 on that card, but only one should show a
+  // spinner at a time.
+  const [busyAction, setBusyAction] = useState<'approve' | 'reject' | null>(null);
   const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY'>('PENDING');
 
   const pendingBookings = useMemo(() => {
@@ -36,6 +49,7 @@ export const Approvals: React.FC = () => {
 
   const handleApprove = async (id: string) => {
     setBusyId(id);
+    setBusyAction('approve');
     try {
       await approveBooking(id);
       success("預約已核准");
@@ -43,12 +57,14 @@ export const Approvals: React.FC = () => {
       error("核准失敗,請稍後再試");
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
   const handleReject = async (id: string) => {
     if (!window.confirm("確定要拒絕此預約嗎？")) return;
     setBusyId(id);
+    setBusyAction('reject');
     try {
       await rejectBooking(id);
       info("預約已拒絕");
@@ -56,6 +72,7 @@ export const Approvals: React.FC = () => {
       error("拒絕失敗,請稍後再試");
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -206,42 +223,44 @@ export const Approvals: React.FC = () => {
             const room = rooms.find(r => r.id === booking.roomId);
             const busy = busyId === booking.id;
             return (
-              <div key={booking.id} className="bg-white rounded-xl border border-l-4 border-l-yellow-400 shadow-sm p-6 flex flex-col gap-4 animate-slide-up hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start">
-                   <div>
-                      <h3 className="text-lg font-bold text-slate-800">{booking.title}</h3>
+              <div key={booking.id} className="bg-white rounded-xl border border-l-4 border-l-yellow-400 shadow-sm p-6 flex flex-col gap-4 animate-slide-up transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+                <div className="flex justify-between items-start gap-3">
+                   <div className="min-w-0">
+                      <h3 className="text-lg font-bold text-slate-800 truncate" title={booking.title}>{booking.title}</h3>
                       <div className="flex items-center gap-2 text-slate-500 text-sm mt-1">
-                         <Monitor size={14}/> {room?.name}
+                         <DoorOpen size={14} className="shrink-0"/> <span className="truncate">{room?.name}</span>
                       </div>
                    </div>
-                   <span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
+                   <span className="shrink-0 bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
                       <Clock size={12}/> 待審核
                    </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 text-sm border-t border-b border-gray-100 py-4 bg-slate-50/50 -mx-6 px-6">
                     <div className="flex items-center gap-2 text-slate-600">
-                        <User size={16} className="text-slate-400"/>
-                        <span className="font-medium">{booking.userName}</span>
+                        <User size={16} className="text-slate-400 shrink-0"/>
+                        <span className="font-medium truncate">{booking.userName}</span>
                     </div>
                     <div className="flex items-center gap-2 text-slate-600">
-                        <Calendar size={16} className="text-slate-400"/>
-                        <span>{new Date(booking.startTime).toLocaleDateString()}</span>
+                        <Calendar size={16} className="text-slate-400 shrink-0"/>
+                        <span>{new Date(booking.startTime).toLocaleDateString('zh-TW')}</span>
                     </div>
-                    <div className="col-span-2 flex items-center gap-2 text-slate-600">
-                        <Clock size={16} className="text-slate-400"/>
-                        <span className="font-mono bg-white border px-2 py-0.5 rounded shadow-sm">
-                            {new Date(booking.startTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false})} -
-                            {new Date(booking.endTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false})}
-                        </span>
+                    <div className="col-span-2 flex items-center justify-between gap-2 text-slate-600">
+                        <div className="flex items-center gap-2">
+                            <Clock size={16} className="text-slate-400 shrink-0"/>
+                            <span className="font-mono tabular-nums bg-white border px-2 py-0.5 rounded shadow-sm">
+                                {new Date(booking.startTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false})} - {new Date(booking.endTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false})}
+                            </span>
+                        </div>
+                        <span className="text-xs text-slate-400">{formatDuration(booking.startTime, booking.endTime)}</span>
                     </div>
                 </div>
 
                 <div className="flex justify-end gap-3 mt-auto pt-2">
-                    <Button variant="secondary" disabled={busy} className="text-red-600 hover:bg-red-50 hover:text-red-700 border-transparent" onClick={() => handleReject(booking.id)}>
+                    <Button variant="secondary" disabled={busy} isLoading={busy && busyAction === 'reject'} className="text-red-600 hover:bg-red-50 hover:text-red-700 border-transparent" onClick={() => handleReject(booking.id)}>
                         <XCircle size={16} className="mr-1"/> 拒絕
                     </Button>
-                    <Button disabled={busy} isLoading={busy} className="bg-green-600 hover:bg-green-700 text-white shadow-sm hover:shadow" onClick={() => handleApprove(booking.id)}>
+                    <Button disabled={busy} isLoading={busy && busyAction === 'approve'} className="bg-green-600 hover:bg-green-700 text-white shadow-sm hover:shadow" onClick={() => handleApprove(booking.id)}>
                         <CheckCircle2 size={16} className="mr-1"/> 核准預約
                     </Button>
                 </div>
