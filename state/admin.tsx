@@ -7,6 +7,7 @@ import {
   deleteUser as deleteUserApi,
   fetchPendingAccounts,
   approveAccount as approveAccountApi,
+  rejectAccount as rejectAccountApi,
   fetchAutoApprovedDomains,
   addAutoApprovedDomain as addAutoApprovedDomainApi,
   updateAutoApprovedDomain as updateAutoApprovedDomainApi,
@@ -22,6 +23,7 @@ export interface AdminData {
   deleteUser: (userId: string) => Promise<void>;
   pendingAccounts: PendingAccount[];
   approveAccount: (accountId: string, role: UserRole) => Promise<void>;
+  rejectAccount: (accountId: string, reason?: string) => Promise<void>;
   autoApprovedDomains: AutoApprovedDomain[];
   addAutoApprovedDomain: (domain: string, allowSubdomains?: boolean) => Promise<void>;
   updateAutoApprovedDomain: (id: string, allowSubdomains: boolean) => Promise<void>;
@@ -82,6 +84,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUsers(await fetchUsers());
   };
 
+  const rejectAccount = async (accountId: string, reason?: string) => {
+    await rejectAccountApi(accountId, reason);
+    setPendingAccounts(prev => prev.filter(a => a.id !== accountId));
+  };
+
   const addAutoApprovedDomain = async (domain: string, allowSubdomains = false) => {
     const created = await addAutoApprovedDomainApi(domain, allowSubdomains);
     setAutoApprovedDomains(prev => [...prev, created]);
@@ -100,7 +107,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <AdminContext.Provider value={{
       users, updateUserRole, updateUserStatus, deleteUser,
-      pendingAccounts, approveAccount,
+      pendingAccounts, approveAccount, rejectAccount,
       autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
       auditLog,
     }}>

@@ -90,6 +90,15 @@ export async function approveAccount(accountId: string, role: UserRole): Promise
   if (!res.ok) throw new Error('Failed to approve account');
 }
 
+export async function rejectAccount(accountId: string, reason?: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/admin/accounts/${accountId}/reject`, {
+    method: 'PATCH',
+    headers: authHeaders(true),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error('Failed to reject account');
+}
+
 export async function fetchAutoApprovedDomains(): Promise<AutoApprovedDomain[]> {
   const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
     headers: authHeaders(),

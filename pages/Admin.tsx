@@ -7,13 +7,13 @@ import { Button } from '../components/Button';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { fetchUsers } from '../services/admin';
-import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, Globe, KeyRound, Ban } from 'lucide-react';
+import { ShieldCheck, User, Tag, Trash2, Plus, Settings, UserCheck, UserX, Globe, KeyRound, Ban } from 'lucide-react';
 
 export const Admin: React.FC = () => {
   const { currentUser } = useAuthData();
   const {
     users, updateUserRole, updateUserStatus, deleteUser,
-    pendingAccounts, approveAccount, autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
+    pendingAccounts, approveAccount, rejectAccount, autoApprovedDomains, addAutoApprovedDomain, updateAutoApprovedDomain, removeAutoApprovedDomain,
   } = useAdminData();
   const { repairCategories, addRepairCategory, removeRepairCategory } = useRepairsData();
   const { success, error } = useToast();
@@ -109,6 +109,20 @@ export const Admin: React.FC = () => {
       success('帳號已核准');
     } catch {
       error('核准失敗，請稍後再試');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleReject = async (accountId: string, name: string) => {
+    if (!window.confirm(`確定要拒絕「${name}」的申請嗎？拒絕後該信箱仍可重新註冊申請。`)) return;
+    const reason = window.prompt('拒絕原因（非必填）：') ?? undefined;
+    setBusyId(accountId);
+    try {
+      await rejectAccount(accountId, reason?.trim() || undefined);
+      success('帳號已拒絕');
+    } catch {
+      error('拒絕失敗，請稍後再試');
     } finally {
       setBusyId(null);
     }
@@ -271,6 +285,12 @@ export const Admin: React.FC = () => {
                   <div>
                     <div className="font-medium text-slate-700">{account.name}</div>
                     <div className="text-sm text-slate-500">{account.email}</div>
+                    {account.lastRejectedAt && (
+                      <div className="text-xs text-amber-600 mt-1">
+                        先前於 {new Date(account.lastRejectedAt).toLocaleString('zh-TW')} 被拒絕
+                        {account.lastRejectionReason ? `，原因：${account.lastRejectionReason}` : ''}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <select
@@ -284,6 +304,15 @@ export const Admin: React.FC = () => {
                     </select>
                     <Button size="sm" disabled={busyId === account.id} isLoading={busyId === account.id} onClick={() => handleApprove(account.id)}>
                       核准
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={busyId === account.id}
+                      isLoading={busyId === account.id}
+                      onClick={() => handleReject(account.id, account.name)}
+                    >
+                      <UserX size={16} /> 拒絕
                     </Button>
                   </div>
                 </div>

@@ -88,6 +88,11 @@ export interface PendingAccount {
   email: string;
   name: string;
   createdAt: string;
+  // Set only if this email was previously rejected and has since
+  // resubmitted a new registration — lets the reviewing Admin see that
+  // history. Both null otherwise.
+  lastRejectionReason: string | null;
+  lastRejectedAt: string | null;
 }
 
 export interface AutoApprovedDomain {
