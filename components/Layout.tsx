@@ -358,8 +358,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       {/* Main Content */}
-      <main className={`flex-1 flex flex-col ${collapsed ? 'md:ml-[72px]' : 'md:ml-64'} p-4 md:p-8 mt-14 md:mt-0 overflow-x-hidden transition-[margin] duration-200`}>
-        <div className="flex-1">{children}</div>
+      <main className={`flex-1 flex flex-col min-h-screen ${collapsed ? 'md:ml-[72px]' : 'md:ml-64'} mt-14 md:mt-0 overflow-x-hidden transition-[margin] duration-200`}>
+        <div className="flex-1 p-4 md:p-8">{children}</div>
         <Footer />
       </main>
 
