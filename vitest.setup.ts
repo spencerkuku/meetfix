@@ -7,3 +7,13 @@ import '@testing-library/jest-dom/vitest';
 // keeps globals off and imports test functions explicitly instead, so
 // cleanup is wired up here rather than left to RTL's detection.
 afterEach(cleanup);
+
+// jsdom doesn't implement ResizeObserver; components that measure elements
+// with it (e.g. BookingCalendarGrid's sticky header height tracking) need
+// at least a no-op stand-in to mount under jsdom.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
