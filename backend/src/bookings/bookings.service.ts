@@ -390,7 +390,7 @@ export class BookingsService {
         action: AuditAction.BOOKING_APPROVAL,
         targetType: 'Booking',
         targetId: id,
-        detail: outcome === BookingStatus.CONFIRMED ? 'Approved' : 'Rejected',
+        detail: outcome === BookingStatus.CONFIRMED ? '核准' : '拒絕',
       },
     );
     return withUserName(updated);
@@ -463,7 +463,7 @@ export class BookingsService {
           action: AuditAction.BOOKING_REVERT,
           targetType: 'Booking',
           targetId: id,
-          detail: `Reverted from ${previousStatus}`,
+          detail: `復原（原為${previousStatus === BookingStatus.CONFIRMED ? '已核准' : '已拒絕'}）`,
         }),
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );

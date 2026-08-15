@@ -141,7 +141,7 @@ describe('Audit Log (e2e)', () => {
     });
     expect(entries).toHaveLength(1);
     expect(entries[0].targetType).toBe('Booking');
-    expect(entries[0].detail).toBe('Approved');
+    expect(entries[0].detail).toBe('核准');
   });
 
   it('an Account Approval writes exactly one correctly-attributed entry', async () => {

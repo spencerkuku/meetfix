@@ -9,6 +9,13 @@ import { BookingRevertConflictError } from '../services/bookings';
 import { isRevertible } from './booking-eligibility';
 import { CheckCircle2, XCircle, Clock, User, Calendar, DoorOpen, RotateCcw, History as HistoryIcon } from 'lucide-react';
 
+// Legacy-compatibility only: BookingsService now writes the Chinese display
+// text directly as `detail` for entries created going forward (see
+// backend/src/bookings/bookings.service.ts's decide()/revert()), so new
+// entries never match these English keys and pass through this function's
+// fallback below unchanged. This table only still translates entries
+// created before that change — Audit Log Entry is immutable (CONTEXT.md),
+// so those rows keep their original English `detail` forever.
 const HISTORY_ACTION_LABEL: Record<string, string> = {
   Approved: '核准',
   Rejected: '拒絕',
@@ -23,6 +30,9 @@ function formatDuration(startTime: string, endTime: string): string {
   return `${hours} 小時 ${remainder} 分鐘`;
 }
 
+// See HISTORY_ACTION_LABEL's comment above: only entries created before
+// BookingsService started writing Chinese `detail` text directly need
+// translating here. Newer entries fall through to `return detail` as-is.
 function historyDetailLabel(detail: string | null | undefined): string {
   if (!detail) return '—';
   if (detail in HISTORY_ACTION_LABEL) return HISTORY_ACTION_LABEL[detail];

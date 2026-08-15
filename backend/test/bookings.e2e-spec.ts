@@ -1083,9 +1083,9 @@ describe('Bookings (e2e)', () => {
 
       const forThisBooking = body.filter((e) => e.targetId === id);
       expect(forThisBooking.map((e) => e.detail)).toEqual([
-        'Rejected',
-        'Reverted from CONFIRMED',
-        'Approved',
+        '拒絕',
+        '復原（原為已核准）',
+        '核准',
       ]);
       const timestamps = forThisBooking.map((e) =>
         new Date(e.createdAt).getTime(),
