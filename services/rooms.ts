@@ -1,5 +1,5 @@
 import { Room } from '../types';
-import { API_URL, API_BASE_URL, authHeaders } from './http';
+import { API_URL, apiFetch } from './http';
 
 interface ApiRoom {
   id: string;
@@ -50,9 +50,7 @@ function toFormData(input: Partial<RoomFormInput>, photo?: File): FormData {
 }
 
 export async function fetchRooms(): Promise<Room[]> {
-  const res = await fetch(`${API_BASE_URL}/rooms`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch rooms');
-  const data: ApiRoom[] = await res.json();
+  const data = await apiFetch<ApiRoom[]>('/rooms', { fallbackMessage: 'Failed to fetch rooms' });
   return data.map(toRoom);
 }
 
@@ -60,13 +58,12 @@ export async function createRoom(
   input: RoomFormInput,
   photo?: File,
 ): Promise<Room> {
-  const res = await fetch(`${API_BASE_URL}/rooms`, {
+  const data = await apiFetch<ApiRoom>('/rooms', {
     method: 'POST',
-    headers: authHeaders(),
     body: toFormData(input, photo),
+    fallbackMessage: 'Failed to create room',
   });
-  if (!res.ok) throw new Error('Failed to create room');
-  return toRoom(await res.json());
+  return toRoom(data);
 }
 
 export async function updateRoomApi(
@@ -74,19 +71,18 @@ export async function updateRoomApi(
   input: Partial<RoomFormInput>,
   photo?: File,
 ): Promise<Room> {
-  const res = await fetch(`${API_BASE_URL}/rooms/${id}`, {
+  const data = await apiFetch<ApiRoom>(`/rooms/${id}`, {
     method: 'PATCH',
-    headers: authHeaders(),
     body: toFormData(input, photo),
+    fallbackMessage: 'Failed to update room',
   });
-  if (!res.ok) throw new Error('Failed to update room');
-  return toRoom(await res.json());
+  return toRoom(data);
 }
 
 export async function deleteRoomApi(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/rooms/${id}`, {
+  return apiFetch<void>(`/rooms/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to delete room',
   });
-  if (!res.ok) throw new Error('Failed to delete room');
 }

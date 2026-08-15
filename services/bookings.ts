@@ -1,5 +1,5 @@
 import { Booking, AuditLogEntry } from '../types';
-import { API_BASE_URL, authHeaders } from './http';
+import { apiFetch, ApiError } from './http';
 
 export interface CreateBookingInput {
   roomId: string;
@@ -12,22 +12,23 @@ export interface CreateBookingInput {
 export class BookingConflictError extends Error {}
 
 export async function fetchBookings(): Promise<Booking[]> {
-  const res = await fetch(`${API_BASE_URL}/bookings`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch bookings');
-  return res.json();
+  return apiFetch<Booking[]>('/bookings', { fallbackMessage: 'Failed to fetch bookings' });
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<Booking> {
-  const res = await fetch(`${API_BASE_URL}/bookings`, {
-    method: 'POST',
-    headers: authHeaders(true),
-    body: JSON.stringify(input),
-  });
-  if (res.status === 409) {
-    throw new BookingConflictError('This time slot is already booked');
+  try {
+    return await apiFetch<Booking>('/bookings', {
+      method: 'POST',
+      json: true,
+      body: JSON.stringify(input),
+      fallbackMessage: 'Failed to create booking',
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      throw new BookingConflictError('This time slot is already booked');
+    }
+    throw err;
   }
-  if (!res.ok) throw new Error('Failed to create booking');
-  return res.json();
 }
 
 export interface UpdateBookingInput {
@@ -39,61 +40,61 @@ export interface UpdateBookingInput {
 }
 
 export async function updateBooking(id: string, input: UpdateBookingInput): Promise<Booking> {
-  const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
-    method: 'PATCH',
-    headers: authHeaders(true),
-    body: JSON.stringify(input),
-  });
-  if (res.status === 409) {
-    throw new BookingConflictError('This time slot is already booked');
+  try {
+    return await apiFetch<Booking>(`/bookings/${id}`, {
+      method: 'PATCH',
+      json: true,
+      body: JSON.stringify(input),
+      fallbackMessage: 'Failed to update booking',
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      throw new BookingConflictError('This time slot is already booked');
+    }
+    throw err;
   }
-  if (!res.ok) throw new Error('Failed to update booking');
-  return res.json();
 }
 
 export async function deleteBooking(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
+  return apiFetch<void>(`/bookings/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to delete booking',
   });
-  if (!res.ok) throw new Error('Failed to delete booking');
 }
 
 export async function approveBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_BASE_URL}/bookings/${id}/approve`, {
+  return apiFetch<Booking>(`/bookings/${id}/approve`, {
     method: 'PATCH',
-    headers: authHeaders(),
+    fallbackMessage: 'Failed to approve booking',
   });
-  if (!res.ok) throw new Error('Failed to approve booking');
-  return res.json();
 }
 
 export async function rejectBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_BASE_URL}/bookings/${id}/reject`, {
+  return apiFetch<Booking>(`/bookings/${id}/reject`, {
     method: 'PATCH',
-    headers: authHeaders(),
+    fallbackMessage: 'Failed to reject booking',
   });
-  if (!res.ok) throw new Error('Failed to reject booking');
-  return res.json();
 }
 
 export class BookingRevertConflictError extends Error {}
 
 export async function revertBooking(id: string): Promise<Booking> {
-  const res = await fetch(`${API_BASE_URL}/bookings/${id}/revert`, {
-    method: 'PATCH',
-    headers: authHeaders(),
-  });
-  if (res.status === 409) {
-    const body = await res.json().catch(() => null) as { message?: string } | null;
-    throw new BookingRevertConflictError(body?.message ?? 'This Booking could not be reverted');
+  try {
+    return await apiFetch<Booking>(`/bookings/${id}/revert`, {
+      method: 'PATCH',
+      fallbackMessage: 'This Booking could not be reverted',
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      throw new BookingRevertConflictError(err.message);
+    }
+    throw err;
   }
-  if (!res.ok) throw new Error('Failed to revert booking');
-  return res.json();
 }
 
 export async function fetchBookingApprovalHistory(): Promise<AuditLogEntry[]> {
-  const res = await fetch(`${API_BASE_URL}/bookings/approval-history`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch booking approval history');
-  return res.json();
+  return apiFetch<AuditLogEntry[]>('/bookings/approval-history', {
+    fallbackMessage: 'Failed to fetch booking approval history',
+  });
 }

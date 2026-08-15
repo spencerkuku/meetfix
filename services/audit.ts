@@ -1,8 +1,6 @@
 import { AuditLogEntry } from '../types';
-import { API_BASE_URL, authHeaders } from './http';
+import { apiFetch } from './http';
 
 export async function fetchAuditLog(): Promise<AuditLogEntry[]> {
-  const res = await fetch(`${API_BASE_URL}/audit-log`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch audit log');
-  return res.json();
+  return apiFetch<AuditLogEntry[]>('/audit-log', { fallbackMessage: 'Failed to fetch audit log' });
 }

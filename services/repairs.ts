@@ -1,5 +1,5 @@
 import { RepairCategory, RepairTicket } from '../types';
-import { API_URL, API_BASE_URL, authHeaders } from './http';
+import { API_URL, API_BASE_URL, authHeaders, apiFetch, ApiError } from './http';
 
 export interface RepairTicketFormInput {
   location: string;
@@ -32,9 +32,7 @@ export interface UpdateRepairTicketInput {
 }
 
 export async function fetchRepairs(): Promise<RepairTicket[]> {
-  const res = await fetch(`${API_BASE_URL}/repairs`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch repair tickets');
-  const data: ApiRepairTicket[] = await res.json();
+  const data = await apiFetch<ApiRepairTicket[]>('/repairs', { fallbackMessage: 'Failed to fetch repair tickets' });
   return data.map(toRepairTicket);
 }
 
@@ -50,26 +48,25 @@ export async function createRepairTicket(
   if (input.userPhone) formData.append('userPhone', input.userPhone);
   if (photo) formData.append('photo', photo);
 
-  const res = await fetch(`${API_BASE_URL}/repairs`, {
+  const data = await apiFetch<ApiRepairTicket>('/repairs', {
     method: 'POST',
-    headers: authHeaders(),
     body: formData,
+    fallbackMessage: 'Failed to submit repair ticket',
   });
-  if (!res.ok) throw new Error('Failed to submit repair ticket');
-  return toRepairTicket(await res.json());
+  return toRepairTicket(data);
 }
 
 export async function updateRepairTicket(
   id: string,
   updates: UpdateRepairTicketInput,
 ): Promise<RepairTicket> {
-  const res = await fetch(`${API_BASE_URL}/repairs/${id}`, {
+  const data = await apiFetch<ApiRepairTicket>(`/repairs/${id}`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify(updates),
+    fallbackMessage: 'Failed to update repair ticket',
   });
-  if (!res.ok) throw new Error('Failed to update repair ticket');
-  return toRepairTicket(await res.json());
+  return toRepairTicket(data);
 }
 
 export interface UpdateRepairContentInput {
@@ -95,24 +92,27 @@ export async function updateRepairContent(
   if (input.removePhoto) formData.append('removePhoto', 'true');
   if (photo) formData.append('photo', photo);
 
-  const res = await fetch(`${API_BASE_URL}/repairs/${id}/content`, {
-    method: 'PATCH',
-    headers: authHeaders(),
-    body: formData,
-  });
-  if (res.status === 409) {
-    throw new Error('This Repair Ticket is no longer PENDING');
+  try {
+    const data = await apiFetch<ApiRepairTicket>(`/repairs/${id}/content`, {
+      method: 'PATCH',
+      body: formData,
+      fallbackMessage: 'Failed to update repair ticket',
+    });
+    return toRepairTicket(data);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      throw new Error('This Repair Ticket is no longer PENDING');
+    }
+    throw err;
   }
-  if (!res.ok) throw new Error('Failed to update repair ticket');
-  return toRepairTicket(await res.json());
 }
 
 export async function deleteRepairTicket(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/repairs/${id}`, {
+  return apiFetch<void>(`/repairs/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to delete repair ticket',
   });
-  if (!res.ok) throw new Error('Failed to delete repair ticket');
 }
 
 // Extracts the filename from a Content-Disposition header, falling back to
@@ -126,6 +126,7 @@ function filenameFromContentDisposition(header: string | null): string {
 // FACILITY_MANAGER/ADMIN-only bulk export. Uses fetch + blob rather than a
 // plain navigation/link, since auth here is a Bearer token (not a cookie)
 // and the browser needs the Authorization header attached to the request.
+// Not migrated to apiFetch: the response is a Blob, not JSON.
 export async function exportRepairsCsv(range?: {
   from: string;
   to: string;
@@ -151,29 +152,26 @@ export async function exportRepairsCsv(range?: {
 }
 
 export async function fetchRepairCategories(): Promise<RepairCategory[]> {
-  const res = await fetch(`${API_BASE_URL}/repair-categories`, {
-    headers: authHeaders(),
+  return apiFetch<RepairCategory[]>('/repair-categories', {
+    fallbackMessage: 'Failed to fetch repair categories',
   });
-  if (!res.ok) throw new Error('Failed to fetch repair categories');
-  return res.json();
 }
 
 export async function createRepairCategory(
   name: string,
 ): Promise<RepairCategory> {
-  const res = await fetch(`${API_BASE_URL}/repair-categories`, {
+  return apiFetch<RepairCategory>('/repair-categories', {
     method: 'POST',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ name }),
+    fallbackMessage: 'Failed to create repair category',
   });
-  if (!res.ok) throw new Error('Failed to create repair category');
-  return res.json();
 }
 
 export async function deleteRepairCategory(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/repair-categories/${id}`, {
+  return apiFetch<void>(`/repair-categories/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to delete repair category',
   });
-  if (!res.ok) throw new Error('Failed to delete repair category');
 }

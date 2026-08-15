@@ -1,5 +1,5 @@
 import { AccountStatus, AdminUser, AutoApprovedDomain, PendingAccount, User, UserRole } from '../types';
-import { API_BASE_URL, authHeaders } from './http';
+import { apiFetch } from './http';
 
 interface ApiUser {
   id: string;
@@ -39,98 +39,92 @@ function toAdminUser(u: ApiAdminUser): AdminUser {
 }
 
 export async function fetchUsers(): Promise<AdminUser[]> {
-  const res = await fetch(`${API_BASE_URL}/admin/users`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch users');
-  const data: ApiAdminUser[] = await res.json();
+  const data = await apiFetch<ApiAdminUser[]>('/admin/users', { fallbackMessage: 'Failed to fetch users' });
   return data.map(toAdminUser);
 }
 
 export async function updateUserRole(id: string, role: UserRole): Promise<AdminUser> {
-  const res = await fetch(`${API_BASE_URL}/admin/users/${id}/role`, {
+  const data = await apiFetch<ApiAdminUser>(`/admin/users/${id}/role`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ role }),
+    fallbackMessage: 'Failed to update role',
   });
-  if (!res.ok) throw new Error('Failed to update role');
-  return toAdminUser(await res.json());
+  return toAdminUser(data);
 }
 
 export async function updateUserStatus(id: string, status: AccountStatus): Promise<AdminUser> {
-  const res = await fetch(`${API_BASE_URL}/admin/users/${id}/status`, {
+  const data = await apiFetch<ApiAdminUser>(`/admin/users/${id}/status`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ status }),
+    fallbackMessage: 'Failed to update account status',
   });
-  if (!res.ok) throw new Error('Failed to update account status');
-  return toAdminUser(await res.json());
+  return toAdminUser(data);
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/admin/users/${id}`, {
+  return apiFetch<void>(`/admin/users/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to delete user',
   });
-  if (!res.ok) throw new Error('Failed to delete user');
 }
 
 export async function fetchPendingAccounts(): Promise<PendingAccount[]> {
-  const res = await fetch(`${API_BASE_URL}/admin/pending-accounts`, {
-    headers: authHeaders(),
+  return apiFetch<PendingAccount[]>('/admin/pending-accounts', {
+    fallbackMessage: 'Failed to fetch pending accounts',
   });
-  if (!res.ok) throw new Error('Failed to fetch pending accounts');
-  return res.json();
 }
 
 export async function approveAccount(accountId: string, role: UserRole): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/admin/accounts/${accountId}/approve`, {
+  return apiFetch<void>(`/admin/accounts/${accountId}/approve`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ role }),
+    parseJson: false,
+    fallbackMessage: 'Failed to approve account',
   });
-  if (!res.ok) throw new Error('Failed to approve account');
 }
 
 export async function rejectAccount(accountId: string, reason?: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/admin/accounts/${accountId}/reject`, {
+  return apiFetch<void>(`/admin/accounts/${accountId}/reject`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ reason }),
+    parseJson: false,
+    fallbackMessage: 'Failed to reject account',
   });
-  if (!res.ok) throw new Error('Failed to reject account');
 }
 
 export async function fetchAutoApprovedDomains(): Promise<AutoApprovedDomain[]> {
-  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
-    headers: authHeaders(),
+  return apiFetch<AutoApprovedDomain[]>('/admin/auto-approved-domains', {
+    fallbackMessage: 'Failed to fetch auto-approved domains',
   });
-  if (!res.ok) throw new Error('Failed to fetch auto-approved domains');
-  return res.json();
 }
 
 export async function addAutoApprovedDomain(domain: string, allowSubdomains = false): Promise<AutoApprovedDomain> {
-  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains`, {
+  return apiFetch<AutoApprovedDomain>('/admin/auto-approved-domains', {
     method: 'POST',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ domain, allowSubdomains }),
+    fallbackMessage: 'Failed to add domain',
   });
-  if (!res.ok) throw new Error('Failed to add domain');
-  return res.json();
 }
 
 export async function updateAutoApprovedDomain(id: string, allowSubdomains: boolean): Promise<AutoApprovedDomain> {
-  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains/${id}`, {
+  return apiFetch<AutoApprovedDomain>(`/admin/auto-approved-domains/${id}`, {
     method: 'PATCH',
-    headers: authHeaders(true),
+    json: true,
     body: JSON.stringify({ allowSubdomains }),
+    fallbackMessage: 'Failed to update domain',
   });
-  if (!res.ok) throw new Error('Failed to update domain');
-  return res.json();
 }
 
 export async function removeAutoApprovedDomain(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/admin/auto-approved-domains/${id}`, {
+  return apiFetch<void>(`/admin/auto-approved-domains/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    parseJson: false,
+    fallbackMessage: 'Failed to remove domain',
   });
-  if (!res.ok) throw new Error('Failed to remove domain');
 }
