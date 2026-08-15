@@ -24,6 +24,27 @@ export function isDeletable(booking: Booking, now: Date = new Date()): boolean {
   return new Date(booking.startTime) > now;
 }
 
+// Whether `booking` can currently be reverted (Booking Revert, undoing a
+// Booking Approval decision). Mirrors the backend's BookingsService.revert()
+// gate exactly: eligibility is keyed on `reviewedAt`, not status alone,
+// because Room.requiresApproval may have changed since the decision was
+// made, so `reviewedAt` is the only way to tell a reviewed CONFIRMED apart
+// from one that was auto-CONFIRMED (Room never required approval). No
+// `deletedAt` check, mirroring isEditable/isDeletable above — frontend
+// Booking state doesn't carry soft-deleted rows.
+export function isRevertible(booking: Booking): boolean {
+  return !!booking.reviewedAt && (booking.status === 'CONFIRMED' || booking.status === 'REJECTED');
+}
+
+// Whether `booking` has not yet ended — status-agnostic, end-time-based.
+// Deliberately distinct from isEditable (which is start-time-based and
+// requires an active status): this answers "is there still something to
+// look at here," used to decide whether a Booking's details are worth
+// showing at all, independent of whether they can still be edited.
+export function hasNotEnded(booking: Booking, now: Date = new Date()): boolean {
+  return new Date(booking.endTime) > now;
+}
+
 // Whether two time ranges overlap, per CONTEXT.md's Slot Conflict entry: a
 // range that merely touches another at a boundary (one's end equals the
 // other's start) does not count as overlapping. The frontend's single

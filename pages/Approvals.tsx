@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { AuditLogEntry } from '../types';
 import { BookingRevertConflictError } from '../services/bookings';
+import { isRevertible } from './booking-eligibility';
 import { CheckCircle2, XCircle, Clock, User, Calendar, DoorOpen, RotateCcw, History as HistoryIcon } from 'lucide-react';
 
 const HISTORY_ACTION_LABEL: Record<string, string> = {
@@ -128,11 +129,7 @@ export const Approvals: React.FC = () => {
 
   const canRevert = (bookingId: string) => {
     const booking = bookings.find(b => b.id === bookingId);
-    return (
-      !!booking &&
-      !!booking.reviewedAt &&
-      (booking.status === 'CONFIRMED' || booking.status === 'REJECTED')
-    );
+    return !!booking && isRevertible(booking);
   };
 
   return (

@@ -6,7 +6,7 @@ import { useBookingsData } from '../state/bookings';
 import { CalendarViewType, Booking, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
-import { isActiveSlot, isDeletable } from './booking-eligibility';
+import { isActiveSlot, isDeletable, hasNotEnded } from './booking-eligibility';
 import { BookingCalendarGrid, CalendarSelection } from './BookingCalendarGrid';
 import { BookingFormModal, BookingFormTarget } from './BookingFormModal';
 import { RoomFilterMenu } from './RoomFilterMenu';
@@ -273,7 +273,7 @@ export const Bookings: React.FC = () => {
                       // Not yet ended — distinct from isDeletable (below):
                       // an in-progress Booking can still be viewed here,
                       // just not deleted.
-                      const isFuture = new Date(booking.endTime) > new Date();
+                      const isFuture = hasNotEnded(booking);
                       const canDelete = isDeletable(booking);
                       const statusMap = {
                           'CONFIRMED': { label: '已確認', color: 'bg-green-100 text-green-800' },

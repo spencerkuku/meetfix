@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { isActiveSlot, isEditable, isDeletable, rangesOverlap } from './booking-eligibility';
+import {
+  isActiveSlot,
+  isEditable,
+  isDeletable,
+  isRevertible,
+  hasNotEnded,
+  rangesOverlap,
+} from './booking-eligibility';
 import { Booking } from '../types';
 
 function makeBooking(overrides: Partial<Booking> = {}): Booking {
@@ -90,6 +97,65 @@ describe('isDeletable', () => {
       endTime: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     });
     expect(isDeletable(booking)).toBe(false);
+  });
+});
+
+describe('isRevertible', () => {
+  it('is revertible when reviewed and CONFIRMED', () => {
+    expect(
+      isRevertible(makeBooking({ status: 'CONFIRMED', reviewedAt: new Date().toISOString() })),
+    ).toBe(true);
+  });
+
+  it('is revertible when reviewed and REJECTED', () => {
+    expect(
+      isRevertible(makeBooking({ status: 'REJECTED', reviewedAt: new Date().toISOString() })),
+    ).toBe(true);
+  });
+
+  it('is not revertible when reviewedAt is null, regardless of status', () => {
+    expect(isRevertible(makeBooking({ status: 'CONFIRMED', reviewedAt: null }))).toBe(false);
+    expect(isRevertible(makeBooking({ status: 'REJECTED', reviewedAt: null }))).toBe(false);
+  });
+
+  it('is not revertible when PENDING_APPROVAL, even if reviewedAt is set', () => {
+    expect(
+      isRevertible(
+        makeBooking({ status: 'PENDING_APPROVAL', reviewedAt: new Date().toISOString() }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is not revertible when CANCELLED, even if reviewedAt is set', () => {
+    expect(
+      isRevertible(makeBooking({ status: 'CANCELLED', reviewedAt: new Date().toISOString() })),
+    ).toBe(false);
+  });
+});
+
+describe('hasNotEnded', () => {
+  it('is true when the Booking has not yet ended', () => {
+    const booking = makeBooking({ endTime: new Date(Date.now() + 60 * 60 * 1000).toISOString() });
+    expect(hasNotEnded(booking)).toBe(true);
+  });
+
+  it('is false once the Booking has ended', () => {
+    const booking = makeBooking({ endTime: new Date(Date.now() - 60 * 60 * 1000).toISOString() });
+    expect(hasNotEnded(booking)).toBe(false);
+  });
+
+  it('is false when endTime equals now (boundary)', () => {
+    const now = new Date(2026, 0, 1, 12, 0, 0);
+    const booking = makeBooking({ endTime: now.toISOString() });
+    expect(hasNotEnded(booking, now)).toBe(false);
+  });
+
+  it('is true regardless of status', () => {
+    const booking = makeBooking({
+      status: 'REJECTED',
+      endTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    expect(hasNotEnded(booking)).toBe(true);
   });
 });
 
