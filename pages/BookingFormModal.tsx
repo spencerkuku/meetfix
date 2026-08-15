@@ -3,7 +3,7 @@ import { Booking, Room } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { BookingConflictError, CreateBookingInput, UpdateBookingInput } from '../services/bookings';
-import { isDeletable, isEditable } from './booking-eligibility';
+import { isDeletable, isEditable, rangesOverlap } from './booking-eligibility';
 import { X, Trash2, Monitor, Users, MapPin, CheckCircle2, AlertCircle } from 'lucide-react';
 
 // What the modal is asked to do when it opens: create a new Booking
@@ -100,8 +100,7 @@ export const BookingFormModal: React.FC<BookingFormModalProps> = ({
       const bStart = new Date(b.startTime);
       const bEnd = new Date(b.endTime);
 
-      // Overlap logic: (StartA < EndB) and (EndA > StartB)
-      return formStart < bEnd && formEnd > bStart;
+      return rangesOverlap({ start: formStart, end: formEnd }, { start: bStart, end: bEnd });
     });
   };
 

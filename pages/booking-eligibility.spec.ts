@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isActiveSlot, isEditable, isDeletable } from './booking-eligibility';
+import { isActiveSlot, isEditable, isDeletable, rangesOverlap } from './booking-eligibility';
 import { Booking } from '../types';
 
 function makeBooking(overrides: Partial<Booking> = {}): Booking {
@@ -90,5 +90,35 @@ describe('isDeletable', () => {
       endTime: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     });
     expect(isDeletable(booking)).toBe(false);
+  });
+});
+
+describe('rangesOverlap', () => {
+  const range = (startHour: number, endHour: number) => ({
+    start: new Date(2026, 0, 1, startHour, 0),
+    end: new Date(2026, 0, 1, endHour, 0),
+  });
+
+  it('overlaps when one range is fully inside the other', () => {
+    expect(rangesOverlap(range(9, 12), range(10, 11))).toBe(true);
+  });
+
+  it('overlaps when ranges partially intersect', () => {
+    expect(rangesOverlap(range(9, 11), range(10, 12))).toBe(true);
+  });
+
+  it('does not overlap when ranges are disjoint', () => {
+    expect(rangesOverlap(range(9, 10), range(11, 12))).toBe(false);
+  });
+
+  it('does not overlap when one range ends exactly as the other starts', () => {
+    expect(rangesOverlap(range(9, 10), range(10, 11))).toBe(false);
+    expect(rangesOverlap(range(10, 11), range(9, 10))).toBe(false);
+  });
+
+  it('is symmetric', () => {
+    expect(rangesOverlap(range(9, 11), range(10, 12))).toBe(
+      rangesOverlap(range(10, 12), range(9, 11)),
+    );
   });
 });

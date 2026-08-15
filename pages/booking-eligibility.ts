@@ -23,3 +23,18 @@ export function isEditable(booking: Booking, now: Date = new Date()): boolean {
 export function isDeletable(booking: Booking, now: Date = new Date()): boolean {
   return new Date(booking.startTime) > now;
 }
+
+// Whether two time ranges overlap, per CONTEXT.md's Slot Conflict entry: a
+// range that merely touches another at a boundary (one's end equals the
+// other's start) does not count as overlapping. The frontend's single
+// definition of this comparison — BookingFormModal's availability pre-check
+// and BookingCalendarGrid's slot rendering both call this instead of each
+// restating it. The backend's own Slot Conflict check (assertNoSlotConflict)
+// expresses the same rule as a Prisma query, not a callable predicate over
+// two Dates, so it isn't unified with this function.
+export function rangesOverlap(
+  a: { start: Date; end: Date },
+  b: { start: Date; end: Date },
+): boolean {
+  return a.start < b.end && a.end > b.start;
+}

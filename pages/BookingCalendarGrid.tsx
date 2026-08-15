@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CalendarViewType, Booking, Room, User, UserRole } from '../types';
+import { rangesOverlap } from './booking-eligibility';
 import { Clock, Monitor, Users, AlignLeft } from 'lucide-react';
 
 // The day/week grid runs 8:00-20:00 in 30-minute increments — slot 0 is
@@ -425,7 +426,11 @@ export const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
                       const bStart = new Date(b.startTime);
                       const bEnd = new Date(b.endTime);
                       const bDate = bStart.toISOString().split('T')[0];
-                      return bDate === dayStr && b.roomId === room.id && bStart < thisSlotEnd && bEnd > thisSlotStart;
+                      return (
+                        bDate === dayStr &&
+                        b.roomId === room.id &&
+                        rangesOverlap({ start: bStart, end: bEnd }, { start: thisSlotStart, end: thisSlotEnd })
+                      );
                    });
 
                    let isSelected = false;
