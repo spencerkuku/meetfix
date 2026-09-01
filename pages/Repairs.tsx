@@ -6,8 +6,8 @@ import { RepairStatus, RepairTicket, UserRole } from '../types';
 import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { CheckCircle, MessageSquare, Plus, X, Image as ImageIcon, Tag, MapPin, Pencil, Trash2, ZoomIn, Info, User } from 'lucide-react';
-import { canSeeReporterDetails, maskName } from 'repair-visibility';
-import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
+import { canSeeReporterDetails, isReporterInfoComplete, maskName } from 'repair-visibility';
+import { REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
 
 export const Repairs: React.FC = () => {
   const { currentUser, refreshCurrentUser } = useAuthData();

@@ -62,3 +62,17 @@ export function maskName(name: string): string {
   if (name.length === 2) return name[0] + 'O';
   return name[0] + 'O' + name.slice(2);
 }
+
+// Whether a reporter's class/department and phone are both filled in (see
+// CONTEXT.md's Repair Ticket, and the reporter-info fields mirrored onto
+// User) — required wherever it's entered: the Repair Ticket form and the
+// Account Settings modal, enforced again server-side on submit. Frontend
+// and backend react to a false result differently (disable a button vs.
+// throw), so only this predicate is shared — each side keeps its own
+// wrapper for the reaction.
+export function isReporterInfoComplete(
+  userClass: string,
+  userPhone: string,
+): boolean {
+  return userClass.trim().length > 0 && userPhone.trim().length > 0;
+}

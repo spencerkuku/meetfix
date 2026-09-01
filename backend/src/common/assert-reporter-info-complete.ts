@@ -1,14 +1,17 @@
 import { BadRequestException } from '@nestjs/common';
+import { isReporterInfoComplete } from 'repair-visibility';
 
 // Reporter info (class/phone — see User.userClass/userPhone and
 // RepairTicket.userClass/userPhone) is required wherever it's submitted:
 // Repair Ticket creation and the User profile update it writes back to.
-// Shared so the two never drift on what counts as "blank".
+// What counts as "blank" is shared with the frontend via
+// isReporterInfoComplete; only the reaction (throw vs. disable a button)
+// differs per side.
 export function assertReporterInfoComplete(
   userClass: string | undefined,
   userPhone: string | undefined,
 ): void {
-  if (!userClass?.trim() || !userPhone?.trim()) {
+  if (!isReporterInfoComplete(userClass ?? '', userPhone ?? '')) {
     throw new BadRequestException('userClass and userPhone are required');
   }
 }

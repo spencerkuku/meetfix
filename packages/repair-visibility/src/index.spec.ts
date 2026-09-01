@@ -1,5 +1,6 @@
 import {
   canSeeReporterDetails,
+  isReporterInfoComplete,
   maskName,
   nextRepairStatus,
   revertRepairStatus,
@@ -90,5 +91,21 @@ describe('revertRepairStatus', () => {
       expect(advanced).not.toBeNull();
       expect(revertRepairStatus(advanced as any)).toBe(status);
     });
+  });
+});
+
+describe('isReporterInfoComplete', () => {
+  it('is false when class is blank', () => {
+    expect(isReporterInfoComplete('', '0912345678')).toBe(false);
+    expect(isReporterInfoComplete('   ', '0912345678')).toBe(false);
+  });
+
+  it('is false when phone is blank', () => {
+    expect(isReporterInfoComplete('資訊組', '')).toBe(false);
+    expect(isReporterInfoComplete('資訊組', '   ')).toBe(false);
+  });
+
+  it('is true when both class and phone are filled in', () => {
+    expect(isReporterInfoComplete('資訊組', '0912345678')).toBe(true);
   });
 });

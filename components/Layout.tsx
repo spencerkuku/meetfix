@@ -28,7 +28,8 @@ import {
 import { Button } from './Button';
 import { Avatar } from './Avatar';
 import { Footer } from './Footer';
-import { isReporterInfoComplete, REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
+import { isReporterInfoComplete } from 'repair-visibility';
+import { REPORTER_INFO_REQUIRED_MESSAGE } from '../reporter-info';
 
 const SIDEBAR_COLLAPSED_KEY = 'meetfix-sidebar-collapsed';
 
