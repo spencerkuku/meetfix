@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          '@': path.resolve(__dirname, './src'),
         },
         // repair-visibility is a workspace package (npm workspaces symlink)
         // that builds to CommonJS (see its tsconfig.json — shared with the
