@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 
 // The API's single route-prefix namespace, applied by both main.ts and
 // every e2e test that boots its own Nest application. Every controller
@@ -29,4 +30,17 @@ export function setApiPrefix(app: INestApplication): void {
 // finding this closes.
 export function setTrustProxy(app: NestExpressApplication): void {
   app.set('trust proxy', 1);
+}
+
+// Clickjacking defense for the API's own responses. The primary fix lives
+// at the Caddy edge (deploy/Caddyfile), since that's the layer serving the
+// SPA's own pages — but nothing in this repo boots Caddy for automated
+// testing, so this redundant NestJS-layer header (verifiable through the
+// existing e2e HTTP test client) protects /api/* independently of Caddy.
+// See the security audit finding this closes.
+export function setSecurityHeaders(app: INestApplication): void {
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+  });
 }

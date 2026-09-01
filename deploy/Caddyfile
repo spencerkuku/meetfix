@@ -1,4 +1,14 @@
 {$SITE_ADDRESS} {
+	# Clickjacking defense: without this, the SPA (served below) could be
+	# embedded in a third-party iframe, letting a disguised overlay trick an
+	# already-authenticated FACILITY_MANAGER/ADMIN into clicking a real
+	# control (see the security audit finding this closes). Applies to
+	# every response this site serves, including /api/*.
+	header {
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'self'"
+	}
+
 	# handle blocks are mutually exclusive and evaluated in order, unlike
 	# bare directives (which run in Caddy's fixed internal precedence, not
 	# textual order) — that matters here because try_files would otherwise
