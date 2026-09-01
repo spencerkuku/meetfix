@@ -13,8 +13,19 @@ const STATUS_LABEL: Record<RepairStatus, string> = {
   [RepairStatus.COMPLETED]: '已完成',
 };
 
+// Neutralizes CSV/spreadsheet formula injection: a cell beginning with one
+// of these characters is interpreted as a formula, not text, by Excel/
+// LibreOffice/Google Sheets when the file is opened — e.g. a reporter-
+// controlled location/description containing `=HYPERLINK(...)` would
+// otherwise execute in a FACILITY_MANAGER/ADMIN's spreadsheet session.
+// Prefixing with a single quote forces the cell to render as literal text
+// in every major spreadsheet application, and is applied before the
+// existing CSV-syntax escaping below.
 function escapeCsvField(value: string): string {
-  return /["\n\r,]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const neutralized = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /["\n\r,]/.test(neutralized)
+    ? `"${neutralized.replace(/"/g, '""')}"`
+    : neutralized;
 }
 
 // 維修人員 — blank until the ticket has actually been marked COMPLETED; see

@@ -978,6 +978,29 @@ describe('Repairs (e2e)', () => {
       expect(res.text).not.toContain('匯出應排除的已刪除單');
     });
 
+    it('neutralizes a location beginning with a spreadsheet formula trigger character (=, +, -, @) so it cannot execute as a formula when opened in Excel', async () => {
+      const payloads = ['=1+1', '+1+1', '-1+1', '@A1'];
+      for (const payload of payloads) {
+        await createTicket(payload);
+      }
+
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      // The location column is the first field of each row, so a raw
+      // formula-trigger character would start the row unescaped. A cell
+      // must never begin with one — each poisoned field is prefixed with a
+      // single quote so a spreadsheet application renders it as literal
+      // text instead of evaluating it as a formula.
+      const rows = res.text.split('\r\n');
+      for (const payload of payloads) {
+        expect(rows.some((row) => row.startsWith(`${payload},`))).toBe(false);
+        expect(rows.some((row) => row.startsWith(`'${payload},`))).toBe(true);
+      }
+    });
+
     it('rejects a malformed date query param', () => {
       return apiRequest(app)
         .get('/repairs/export?from=not-a-date')
