@@ -179,12 +179,26 @@ export class RepairsService {
     }
 
     const updated = await this.audit.runAuditedTransaction(
-      (tx) =>
-        tx.repairTicket.update({
-          where: { id },
+      async (tx) => {
+        // Conditional on status, not just id, so two concurrent
+        // updateStatus() calls against the same ticket (e.g. one reverting,
+        // one advancing) can't both commit — only the first to commit wins,
+        // and the loser's would-be Audit Log Entry is never written.
+        // Mirrors BookingsService.decide()'s equivalent guard.
+        const result = await tx.repairTicket.updateMany({
+          where: { id, status: previousStatus, deletedAt: null },
           data,
+        });
+        if (result.count === 0) {
+          throw new ConflictException(
+            'Repair Ticket status changed concurrently; reload and retry',
+          );
+        }
+        return tx.repairTicket.findUniqueOrThrow({
+          where: { id },
           include: { user: true },
-        }),
+        });
+      },
       updates.status !== undefined
         ? {
             actorId,

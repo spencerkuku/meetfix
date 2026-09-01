@@ -6,12 +6,13 @@ import { existsSync, rmSync } from 'fs';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { RepairsService } from './../src/repairs/repairs.service';
 import { serveUploads } from './../src/uploads/serve-uploads';
 import { setApiPrefix } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
 import { uploadFilePath } from './support/upload-file-path';
 import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
-import { Role } from '@prisma/client';
+import { Role, RepairStatus } from '@prisma/client';
 
 // Minimal valid 1x1 PNG (real magic bytes) — required now that uploads are
 // validated by content, not by client-declared mimetype or filename.
@@ -43,10 +44,13 @@ describe('Repairs (e2e)', () => {
   let app: NestExpressApplication;
   let authService: AuthService;
   let prisma: PrismaService;
+  let repairsService: RepairsService;
   let userToken: string;
   let otherUserToken: string;
   let adminToken: string;
   let facilityManagerToken: string;
+  let adminUserId: string;
+  let facilityManagerUserId: string;
   const createdUploadPaths: string[] = [];
 
   async function tokenFor(email: string, role: Role): Promise<string> {
@@ -77,6 +81,7 @@ describe('Repairs (e2e)', () => {
     serveUploads(app);
     authService = moduleFixture.get(AuthService);
     prisma = moduleFixture.get(PrismaService);
+    repairsService = moduleFixture.get(RepairsService);
     await app.init();
 
     userToken = await tokenFor('reporter@school.edu.tw', Role.USER);
@@ -86,6 +91,16 @@ describe('Repairs (e2e)', () => {
       'repairfacility@school.edu.tw',
       Role.FACILITY_MANAGER,
     );
+    adminUserId = (
+      await prisma.user.findUniqueOrThrow({
+        where: { email: 'repairadmin@school.edu.tw' },
+      })
+    ).id;
+    facilityManagerUserId = (
+      await prisma.user.findUniqueOrThrow({
+        where: { email: 'repairfacility@school.edu.tw' },
+      })
+    ).id;
   });
 
   afterAll(async () => {
@@ -452,6 +467,68 @@ describe('Repairs (e2e)', () => {
         .expect(200);
       expect((revertedToInProgress.body as RepairTicketResponse).status).toBe(
         'IN_PROGRESS',
+      );
+    });
+
+    it('a revert racing a concurrent advance on the same IN_PROGRESS ticket results in exactly one applied transition', async () => {
+      const id = await createTicket();
+      await apiRequest(app)
+        .patch(`/repairs/${id}`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      // Raced through the full HTTP boundary (two apiRequest() calls in
+      // Promise.all, as every other concurrency test in this file/
+      // bookings.e2e-spec.ts does), this race window is too narrow to land
+      // reliably: updateStatus()'s findUnique-then-write round trip is fast
+      // enough on a local Postgres that one request's guard/JWT-validation
+      // overhead alone is almost always enough for the second request's
+      // read to land after the first's write already committed — so the
+      // outer in-memory transition check (not the persistence-layer guard
+      // this test exists to verify) ends up being what rejects the loser,
+      // every time, regardless of whether that guard exists. Calling
+      // RepairsService.updateStatus() directly removes that overhead and
+      // reliably reproduces both requests reading the same pre-transition
+      // status before either commits.
+      const [revertRes, advanceRes] = await Promise.allSettled([
+        repairsService.updateStatus(facilityManagerUserId, id, {
+          status: RepairStatus.PENDING,
+        }),
+        repairsService.updateStatus(adminUserId, id, {
+          status: RepairStatus.COMPLETED,
+        }),
+      ]);
+
+      // Exactly one of the two must actually persist — the loser must be
+      // rejected (a thrown ConflictException, surfaced here as a rejected
+      // promise), never silently overwritten or silently overwriting.
+      const outcomes = [revertRes.status, advanceRes.status].sort();
+      expect(outcomes).toEqual(['fulfilled', 'rejected']);
+
+      const final = await prisma.repairTicket.findUniqueOrThrow({
+        where: { id },
+      });
+      const winnerStatus =
+        revertRes.status === 'fulfilled' ? 'PENDING' : 'COMPLETED';
+      expect(final.status).toBe(winnerStatus);
+
+      // The Audit Log Entry trail must agree with the final persisted
+      // status — the loser's write (and its would-be audit entry) never
+      // happened, so exactly one REPAIR_STATUS_CHANGE entry describes a
+      // transition FROM this ticket's IN_PROGRESS state, and it matches
+      // the winner.
+      const entries = await prisma.auditLogEntry.findMany({
+        where: {
+          targetType: 'RepairTicket',
+          targetId: id,
+          action: 'REPAIR_STATUS_CHANGE',
+          detail: { startsWith: 'Status changed from IN_PROGRESS to' },
+        },
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].detail).toBe(
+        `Status changed from IN_PROGRESS to ${winnerStatus}`,
       );
     });
 
