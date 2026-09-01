@@ -26,7 +26,23 @@
 
 ## 環境變數
 
-各變數的說明與格式要求見 [`.env.example`](../.env.example) 內的註解。上傳的檔案（教室與報修單照片）存放在 `uploads` volume，透過 Caddy 於 `/uploads/*` 對外提供——詳見 [ADR-0004](./adr/0004-local-disk-file-storage.md)。
+格式要求與範例值見 [`.env.example`](../.env.example) 內的逐行註解。
+
+| 變數 | 必填 | 用途／未設定時的行為 |
+| --- | --- | --- |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | 必填 | 資料庫帳密，`postgres` 與 `api` 共用 |
+| `SITE_ADDRESS` | 必填 | Caddy 自動核發 HTTPS 憑證的網域；production 請填實際網域 |
+| `VITE_API_URL` | 選填 | 前端 Vite 開發伺服器找 API 的位置；`docker compose` 部署不使用 |
+| `VITE_SCHOOL_NAME` | 選填 | Footer 顯示的校名；未設定時 footer 不顯示校名，只顯示系統名稱 |
+| `JWT_SECRET` | 必填 | 簽署 session JWT 的密鑰 |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 必填 | Google OAuth 憑證 |
+| `GOOGLE_CALLBACK_URL` | 必填 | 須與 Google Cloud Console 註冊的 redirect URI 完全一致 |
+| `SCHOOL_GOOGLE_DOMAIN` | 必填 | 允許登入的 Google Workspace 網域，其餘一律拒絕 |
+| `FRONTEND_URL` | 必填 | 前端公開網址，Google 登入後導回此處 |
+| `BACKUP_RETENTION_DAYS` | 選填 | 備份保留天數；未設定時預設 14 天 |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` / `SEED_ADMIN_NAME` | 選填 | 首次啟動自動 bootstrap 的管理員帳號；未設定則跳過 |
+
+上傳的檔案（教室與報修單照片）存放在 `uploads` volume，透過 Caddy 於 `/uploads/*` 對外提供——詳見 [ADR-0004](./adr/0004-local-disk-file-storage.md)。
 
 ## 備份與還原
 

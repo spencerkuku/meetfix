@@ -212,10 +212,9 @@ export const RepairManagement: React.FC = () => {
       )}
       <button
         onClick={() => openDetail(ticket)}
-        data-replied={Boolean(ticket.adminReply)}
         className={
           ticket.adminReply
-            ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded'
+            ? 'text-blue-700 hover:bg-blue-50 p-1.5 rounded'
             : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded'
         }
         title="回覆"

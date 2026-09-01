@@ -60,22 +60,23 @@ npm run start:dev
 
 ### 測試
 
-測試對真實 PostgreSQL 執行，不 mock Prisma／DB 層。
+不 mock Prisma／DB 層，一律對真實 PostgreSQL 執行：
 
 ```bash
 cd backend
-# 先將 backend/.env 的 DATABASE_URL 指向可拋棄的 Postgres 實例（本機 Docker 容器即可）
+# 將 backend/.env 的 DATABASE_URL 指向可拋棄的 Postgres 實例（本機 Docker 容器即可）
 npm run test        # 單元測試
 npm run test:e2e    # 針對真實資料庫的 HTTP 邊界測試
 ```
 
 ### 資料庫 migration
 
-Schema 變更一律透過 Prisma migration，絕不手動改資料庫。
+一律透過 Prisma migration 變更 schema，絕不手動改資料庫：
 
 ```bash
 cd backend
 npx prisma migrate dev --name <describe-the-change>
 ```
 
-Migration 檔案提交至 `backend/prisma/migrations/`；正式環境透過 `prisma migrate deploy` 於每次容器啟動時自動套用（見 `backend/docker-entrypoint.sh`）。
+- Migration 檔案提交至 `backend/prisma/migrations/`
+- 正式環境透過 `prisma migrate deploy` 於每次容器啟動時自動套用（見 `backend/docker-entrypoint.sh`）

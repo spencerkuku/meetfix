@@ -84,7 +84,7 @@ describe('RepairManagement — reply affordance in the ticket list', () => {
 
     const table = await screen.findByRole('table');
     const replyButton = within(table).getByRole('button', { name: '回覆' });
-    expect(replyButton).toHaveAttribute('data-replied', 'false');
+    expect(replyButton.className).toMatch(/text-slate-400/);
   });
 
   it('shows an answered-style reply button for a ticket that already has an adminReply', async () => {
@@ -95,7 +95,7 @@ describe('RepairManagement — reply affordance in the ticket list', () => {
 
     const table = await screen.findByRole('table');
     const replyButton = within(table).getByRole('button', { name: '回覆' });
-    expect(replyButton).toHaveAttribute('data-replied', 'true');
+    expect(replyButton.className).toMatch(/text-blue-700/);
   });
 
   it('opens the detail modal when the reply button is clicked', async () => {
