@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRepairsData } from '../state/repairs';
 import { RepairStatus, RepairTicket } from '../types';
 import { Button } from '../components/Button';
@@ -89,6 +89,20 @@ export const RepairManagement: React.FC = () => {
   // Revert confirmation and inline photo preview.
   const [pendingRevert, setPendingRevert] = useState<PendingRevert | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // Escape closes whichever overlay is currently on top — lightbox, then
+  // revert confirm, then the detail drawer — matching their visual stacking.
+  useEffect(() => {
+    if (!previewImageUrl && !pendingRevert && !viewingId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (previewImageUrl) setPreviewImageUrl(null);
+      else if (pendingRevert) setPendingRevert(null);
+      else closeDetail();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewImageUrl, pendingRevert, viewingId]);
 
   const openDetail = (ticket: RepairTicket) => {
     setViewingId(ticket.id);
@@ -214,21 +228,13 @@ export const RepairManagement: React.FC = () => {
         onClick={() => openDetail(ticket)}
         className={
           ticket.adminReply
-            ? 'text-blue-700 hover:bg-blue-50 p-1.5 rounded'
-            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded'
+            ? 'flex items-center gap-1 text-xs font-medium text-blue-700 hover:bg-blue-50 px-2 py-1.5 rounded whitespace-nowrap'
+            : 'flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-2 py-1.5 rounded whitespace-nowrap'
         }
-        title="回覆"
-        aria-label="回覆"
+        title={ticket.adminReply ? '查看詳情與回覆' : '查看詳情並回覆'}
       >
-        <MessageSquare size={14}/>
-      </button>
-      <button
-        onClick={() => openDetail(ticket)}
-        className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded"
-        title="查看詳情與回覆"
-        aria-label="查看詳情與回覆"
-      >
-        <Info size={14}/>
+        {ticket.adminReply ? <MessageSquare size={14}/> : <Info size={14}/>}
+        {ticket.adminReply ? '查看回覆' : '詳情'}
       </button>
     </>
   );
@@ -316,7 +322,7 @@ export const RepairManagement: React.FC = () => {
                     <th className="p-3">問題描述</th>
                     <th className="p-3">回報人</th>
                     <th className="p-3">日期</th>
-                    <th className="p-3 pr-4"></th>
+                    <th className="p-3 pr-4 text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">

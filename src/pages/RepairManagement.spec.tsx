@@ -78,37 +78,37 @@ describe('RepairManagement — reply affordance in the ticket list', () => {
     vi.mocked(authService.fetchCurrentUser).mockResolvedValue(makeUser());
   });
 
-  it('shows an unanswered-style reply button for a ticket with no adminReply yet', async () => {
+  it('shows an unanswered-style detail button for a ticket with no adminReply yet', async () => {
     vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket({ adminReply: undefined })]);
     renderRepairManagement();
 
     const table = await screen.findByRole('table');
-    const replyButton = within(table).getByRole('button', { name: '回覆' });
-    expect(replyButton.className).toMatch(/text-slate-400/);
+    const detailButton = within(table).getByRole('button', { name: '詳情' });
+    expect(detailButton.className).toMatch(/text-slate-500/);
   });
 
-  it('shows an answered-style reply button for a ticket that already has an adminReply', async () => {
+  it('shows an answered-style detail button for a ticket that already has an adminReply', async () => {
     vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
       makeTicket({ adminReply: '已更換投影機燈泡' }),
     ]);
     renderRepairManagement();
 
     const table = await screen.findByRole('table');
-    const replyButton = within(table).getByRole('button', { name: '回覆' });
-    expect(replyButton.className).toMatch(/text-blue-700/);
+    const detailButton = within(table).getByRole('button', { name: '查看回覆' });
+    expect(detailButton.className).toMatch(/text-blue-700/);
   });
 
-  it('opens the detail modal when the reply button is clicked', async () => {
+  it('opens the detail modal when the detail button is clicked', async () => {
     vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket()]);
     renderRepairManagement();
 
     const table = await screen.findByRole('table');
-    within(table).getByRole('button', { name: '回覆' }).click();
+    within(table).getByRole('button', { name: '詳情' }).click();
 
     await screen.findByText('維修回覆與備註');
   });
 
-  it('renders a reply button for tickets in every status', async () => {
+  it('renders a single detail button for tickets in every status', async () => {
     vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
       makeTicket({ id: 't1', status: RepairStatus.PENDING }),
       makeTicket({ id: 't2', status: RepairStatus.IN_PROGRESS }),
@@ -121,6 +121,6 @@ describe('RepairManagement — reply affordance in the ticket list', () => {
     fireEvent.click(await screen.findByText('所有工單'));
 
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('button', { name: '回覆' })).toHaveLength(3);
+    expect(within(table).getAllByRole('button', { name: '詳情' })).toHaveLength(3);
   });
 });
