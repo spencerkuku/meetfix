@@ -106,10 +106,20 @@ export class AdminService {
 
     await this.audit.runAuditedTransaction(
       async (tx) => {
-        await tx.account.update({
-          where: { id: accountId },
+        // Conditional on status, not just id, so a concurrent
+        // approveAccount()/rejectAccount() call racing on the same
+        // accountId can't both commit — only the first to commit wins,
+        // and the loser's would-be Audit Log Entry is never written.
+        // Mirrors RepairsService.updateStatus()'s equivalent guard.
+        const result = await tx.account.updateMany({
+          where: { id: accountId, status: AccountStatus.PENDING },
           data: { status: AccountStatus.ACTIVE },
         });
+        if (result.count === 0) {
+          throw new ConflictException(
+            'This Account was already reviewed by another Admin',
+          );
+        }
         await tx.user.update({
           where: { id: account.userId },
           data: { role: dto.role },
@@ -149,14 +159,21 @@ export class AdminService {
 
     await this.audit.runAuditedTransaction(
       async (tx) => {
-        await tx.account.update({
-          where: { id: accountId },
+        // Same conditional-updateMany guard as approveAccount() above —
+        // see that method's comment for why.
+        const result = await tx.account.updateMany({
+          where: { id: accountId, status: AccountStatus.PENDING },
           data: {
             status: AccountStatus.REJECTED,
             lastRejectionReason: reason,
             lastRejectedAt: new Date(),
           },
         });
+        if (result.count === 0) {
+          throw new ConflictException(
+            'This Account was already reviewed by another Admin',
+          );
+        }
       },
       {
         actorId,
@@ -182,7 +199,8 @@ export class AdminService {
     const allowSubdomains = dto.allowSubdomains ?? false;
     try {
       return await this.audit.runAuditedTransaction(
-        (tx) => tx.autoApprovedDomain.create({ data: { domain, allowSubdomains } }),
+        (tx) =>
+          tx.autoApprovedDomain.create({ data: { domain, allowSubdomains } }),
         (created) => ({
           actorId,
           action: AuditAction.AUTO_APPROVED_DOMAIN_CHANGE,
@@ -349,10 +367,18 @@ export class AdminService {
         if (isRemovingAdmin) {
           await this.assertNotLastAdminTx(tx, userId, 'remove');
         }
-        return tx.user.update({
-          where: { id: userId },
+        // Conditional on the previously-read role, not just id — mirrors
+        // approveAccount()/rejectAccount()'s guard above, closing the same
+        // unconditional-update-after-stale-read gap for role changes.
+        const result = await tx.user.updateMany({
+          where: { id: userId, role: user.role },
           data: { role: dto.role },
         });
+        if (result.count === 0) {
+          throw new ConflictException(
+            "This User's Role was already changed by another Admin",
+          );
+        }
       },
       {
         actorId,
@@ -369,8 +395,15 @@ export class AdminService {
   // User's existing Bookings/Repair Tickets untouched. Distinct from
   // Account Approval's PENDING — suspending only ever applies to an
   // already-ACTIVE or already-SUSPENDED Account. See CONTEXT.md.
-  async updateUserStatus(actorId: string, userId: string, dto: UpdateStatusDto) {
-    if (dto.status !== AccountStatus.ACTIVE && dto.status !== AccountStatus.SUSPENDED) {
+  async updateUserStatus(
+    actorId: string,
+    userId: string,
+    dto: UpdateStatusDto,
+  ) {
+    if (
+      dto.status !== AccountStatus.ACTIVE &&
+      dto.status !== AccountStatus.SUSPENDED
+    ) {
       throw new BadRequestException('status must be ACTIVE or SUSPENDED');
     }
     if (actorId === userId) {
@@ -396,10 +429,19 @@ export class AdminService {
         if (isSuspendingAdmin) {
           await this.assertNotLastAdminTx(tx, userId, 'suspend');
         }
-        return tx.account.update({
-          where: { userId },
+        // Conditional on the previously-read status, not just userId —
+        // mirrors approveAccount()/rejectAccount()'s guard above, closing
+        // the same unconditional-update-after-stale-read gap for status
+        // changes.
+        const result = await tx.account.updateMany({
+          where: { userId, status: previousStatus },
           data: { status: dto.status },
         });
+        if (result.count === 0) {
+          throw new ConflictException(
+            "This User's Account Status was already changed by another Admin",
+          );
+        }
       },
       {
         actorId,
@@ -443,9 +485,9 @@ export class AdminService {
         const { count: bookingCount } = await tx.booking.deleteMany({
           where: { userId },
         });
-        const { count: repairTicketCount } = await tx.repairTicket.deleteMany(
-          { where: { userId } },
-        );
+        const { count: repairTicketCount } = await tx.repairTicket.deleteMany({
+          where: { userId },
+        });
         await tx.account.deleteMany({ where: { userId } });
         await tx.user.delete({ where: { id: userId } });
         return { bookingCount, repairTicketCount };

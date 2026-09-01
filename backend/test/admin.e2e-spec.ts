@@ -4,6 +4,7 @@ import { App } from 'supertest/types';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
+import { AdminService } from './../src/admin/admin.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { setApiPrefix } from './../src/bootstrap';
@@ -13,6 +14,7 @@ import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 describe('Admin (e2e)', () => {
   let app: INestApplication<App>;
   let authService: AuthService;
+  let adminService: AdminService;
   let prisma: PrismaService;
   let adminToken: string;
   let userToken: string;
@@ -43,6 +45,7 @@ describe('Admin (e2e)', () => {
     app = moduleFixture.createNestApplication();
     setApiPrefix(app);
     authService = moduleFixture.get(AuthService);
+    adminService = moduleFixture.get(AdminService);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
 
@@ -215,9 +218,9 @@ describe('Admin (e2e)', () => {
         .get('/admin/pending-accounts')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
-      const entry = (
-        pending.body as { id: string; email: string }[]
-      ).find((a) => a.email === 'pendingvendor@unknown.example.com');
+      const entry = (pending.body as { id: string; email: string }[]).find(
+        (a) => a.email === 'pendingvendor@unknown.example.com',
+      );
       expect(entry).toBeDefined();
 
       await apiRequest(app)
@@ -558,14 +561,107 @@ describe('Admin (e2e)', () => {
     });
   });
 
+  describe('Account Approval/Rejection race', () => {
+    // Raced through the full HTTP boundary (as every other concurrency test
+    // in this file does for the last-admin-protection invariant), this
+    // exact race window is too narrow to land reliably — mirrors the
+    // finding this test closes: RepairsService.updateStatus()'s equivalent
+    // race (see repairs.e2e-spec.ts) needed the same fix, for the same
+    // documented reason. Calling AdminService.approveAccount()/
+    // rejectAccount() directly removes the JWT-guard/HTTP overhead and
+    // reliably reproduces both calls reading the same pre-decision PENDING
+    // status before either commits.
+    it('a concurrent approve racing a reject on the same Pending Account results in exactly one applied decision', async () => {
+      await apiRequest(app)
+        .post('/auth/register')
+        .send({
+          email: 'race-approve-reject@unknown.example.com',
+          name: '審核競態測試',
+          password: 'password123',
+        })
+        .expect(201);
+      const account = await prisma.account.findFirstOrThrow({
+        where: { user: { email: 'race-approve-reject@unknown.example.com' } },
+      });
+      const adminUserId = (
+        await prisma.user.findUniqueOrThrow({
+          where: { email: 'admin@school.edu.tw' },
+        })
+      ).id;
+      // A second Admin User, provisioned directly (no HTTP/token needed
+      // since this test calls AdminService methods directly) — demoted
+      // back to USER at the end so it doesn't count as a remaining Admin
+      // in later tests' last-admin-protection checks, matching this
+      // file's established pattern for throwaway race-test Admins.
+      const { user: secondAdmin } = await authService.loginWithGoogle({
+        googleSub: 'sub-race-approve-reject-admin-b@school.edu.tw',
+        email: 'race-approve-reject-admin-b@school.edu.tw',
+        name: '審核競態測試管理員B',
+        hostedDomain: 'school.edu.tw',
+      });
+      await prisma.user.update({
+        where: { id: secondAdmin.id },
+        data: { role: Role.ADMIN },
+      });
+      const secondAdminUserId = secondAdmin.id;
+
+      const [approveRes, rejectRes] = await Promise.allSettled([
+        adminService.approveAccount(adminUserId, account.id, {
+          role: Role.FACILITY_MANAGER,
+        }),
+        adminService.rejectAccount(secondAdminUserId, account.id, {
+          reason: 'duplicate application',
+        }),
+      ]);
+
+      // Exactly one of the two must actually persist — the loser must be
+      // rejected (a thrown ConflictException, surfaced here as a rejected
+      // promise), never silently overwritten or silently overwriting.
+      const outcomes = [approveRes.status, rejectRes.status].sort();
+      expect(outcomes).toEqual(['fulfilled', 'rejected']);
+
+      const final = await prisma.account.findUniqueOrThrow({
+        where: { id: account.id },
+      });
+      const winnerStatus =
+        approveRes.status === 'fulfilled' ? 'ACTIVE' : 'REJECTED';
+      expect(final.status).toBe(winnerStatus);
+
+      // The Audit Log Entry trail must agree with the final persisted
+      // status — the loser's write (and its would-be audit entry) never
+      // happened, so exactly one of ACCOUNT_APPROVAL/ACCOUNT_REJECTION is
+      // recorded for this account, matching the winner.
+      const entries = await prisma.auditLogEntry.findMany({
+        where: { targetType: 'Account', targetId: account.id },
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].action).toBe(
+        approveRes.status === 'fulfilled'
+          ? 'ACCOUNT_APPROVAL'
+          : 'ACCOUNT_REJECTION',
+      );
+
+      // Demote back so this throwaway Admin doesn't count as a remaining
+      // Admin in later tests' last-admin-protection checks.
+      await prisma.user.update({
+        where: { id: secondAdminUserId },
+        data: { role: Role.USER },
+      });
+    });
+  });
+
   describe('User role management', () => {
     it('ADMIN can change the Role of an existing active User', async () => {
       const res = await apiRequest(app)
-        .patch(`/admin/users/${(
-          await prisma.user.findUniqueOrThrow({
-            where: { email: 'plainuser@school.edu.tw' },
-          })
-        ).id}/role`)
+        .patch(
+          `/admin/users/${
+            (
+              await prisma.user.findUniqueOrThrow({
+                where: { email: 'plainuser@school.edu.tw' },
+              })
+            ).id
+          }/role`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'FACILITY_MANAGER' })
         .expect(200);
@@ -930,7 +1026,9 @@ describe('Admin (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(204);
 
-      expect(await prisma.user.findUnique({ where: { id: target.id } })).toBeNull();
+      expect(
+        await prisma.user.findUnique({ where: { id: target.id } }),
+      ).toBeNull();
       expect(
         await prisma.booking.findMany({ where: { userId: target.id } }),
       ).toHaveLength(0);
@@ -939,7 +1037,10 @@ describe('Admin (e2e)', () => {
       ).toHaveLength(0);
 
       const priorEntry = await prisma.auditLogEntry.findFirstOrThrow({
-        where: { action: 'ROLE_CHANGE', detail: { contains: 'FACILITY_MANAGER' } },
+        where: {
+          action: 'ROLE_CHANGE',
+          detail: { contains: 'FACILITY_MANAGER' },
+        },
       });
       expect(priorEntry.actorId).toBeNull();
       expect(priorEntry.actorName).toBe('delete-target@school.edu.tw');
@@ -948,9 +1049,11 @@ describe('Admin (e2e)', () => {
         where: { action: 'USER_DELETION', targetId: target.id },
       });
       expect(deletionEntry.actorId).toBe(
-        (await prisma.user.findUniqueOrThrow({
-          where: { email: 'admin@school.edu.tw' },
-        })).id,
+        (
+          await prisma.user.findUniqueOrThrow({
+            where: { email: 'admin@school.edu.tw' },
+          })
+        ).id,
       );
       expect(deletionEntry.detail).toEqual(
         expect.stringContaining('1 Booking'),
