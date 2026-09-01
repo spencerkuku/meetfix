@@ -3,11 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { serveUploads } from './uploads/serve-uploads';
-import { setApiPrefix } from './bootstrap';
+import { setApiPrefix, setTrustProxy } from './bootstrap';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
+  setTrustProxy(app);
   setApiPrefix(app);
   // Deliberately unauthenticated: <img> tags can't send an Authorization
   // header, and uploaded photos (room photos, repair-ticket photos) aren't

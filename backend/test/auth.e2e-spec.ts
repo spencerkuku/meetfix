@@ -5,12 +5,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { GoogleProfile } from './../src/auth/google-profile.interface';
-import { setApiPrefix } from './../src/bootstrap';
+import { setApiPrefix, setTrustProxy } from './../src/bootstrap';
 import { apiRequest } from './support/api-request';
 import { permissiveThrottlerGuard } from './support/permissive-throttler-guard';
 
@@ -963,7 +964,7 @@ describe('Auth (e2e)', () => {
 // is for every other test in this file), so the actual 5-req/60s limit on
 // /auth/login and /auth/register can be exercised directly.
 describe('Auth rate limiting (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
   let prisma: PrismaService;
 
   beforeEach(async () => {
@@ -971,7 +972,8 @@ describe('Auth rate limiting (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication<NestExpressApplication>();
+    setTrustProxy(app);
     setApiPrefix(app);
     prisma = moduleFixture.get(PrismaService);
     await app.init();
@@ -1032,6 +1034,50 @@ describe('Auth rate limiting (e2e)', () => {
         password: 'password123',
       })
       .expect(429);
+  });
+
+  it('scopes the rate limit per forwarded client rather than a single counter shared by every real user behind the reverse proxy', async () => {
+    await apiRequest(app)
+      .post('/auth/register')
+      .send({
+        email: 'throttle-per-client@school.edu.tw',
+        name: '節流測試',
+        password: 'password123',
+      })
+      .expect(201);
+
+    // Simulates the production topology (Caddy is the sole, trusted
+    // reverse-proxy hop — see docker-compose.yml / deploy/Caddyfile): every
+    // real request arrives at Express with the same raw socket peer, but a
+    // distinct client identity in X-Forwarded-For, set by that one trusted
+    // hop.
+    for (let i = 0; i < 5; i++) {
+      await apiRequest(app)
+        .post('/auth/login')
+        .set('X-Forwarded-For', '203.0.113.1')
+        .send({
+          email: 'throttle-per-client@school.edu.tw',
+          password: 'wrong',
+        })
+        .expect(401);
+    }
+
+    // The forwarded client that made those 5 requests is now throttled...
+    await apiRequest(app)
+      .post('/auth/login')
+      .set('X-Forwarded-For', '203.0.113.1')
+      .send({ email: 'throttle-per-client@school.edu.tw', password: 'wrong' })
+      .expect(429);
+
+    // ...but a DIFFERENT forwarded client, arriving through the same
+    // trusted proxy hop, must not be caught by the first client's counter —
+    // if it is, the rate limiter is tracking the proxy's constant address
+    // instead of the real per-client identity.
+    await apiRequest(app)
+      .post('/auth/login')
+      .set('X-Forwarded-For', '203.0.113.2')
+      .send({ email: 'throttle-per-client@school.edu.tw', password: 'wrong' })
+      .expect(401);
   });
 
   it('rejects the 6th /auth/password attempt within 60s from the same source with 429', async () => {
