@@ -90,8 +90,8 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
       - backups:/backups
-      - ./backup/backup.sh:/backup.sh:ro
-      - ./backup/crontab:/etc/crontabs/root:ro
+      - ./deploy/backup/backup.sh:/backup.sh:ro
+      - ./deploy/backup/crontab:/etc/crontabs/root:ro
     entrypoint: ["crond", "-f", "-l", "2"]
     depends_on:
       postgres:
@@ -100,7 +100,7 @@ services:
   caddy:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: deploy/Dockerfile.frontend
       args:
         # Same-origin: the frontend and API share this Caddy origin, so the
         # built-in frontend needs no absolute API host baked in.
@@ -122,7 +122,7 @@ services:
       - /tmp
     logging: *default-logging
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     environment:

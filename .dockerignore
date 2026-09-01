@@ -8,5 +8,5 @@ backend/uploads/**
 .env
 .env.example
 docs
-backup
+deploy/backup
 *.md

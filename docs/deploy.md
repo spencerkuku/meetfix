@@ -47,7 +47,7 @@
 ## 備份與還原
 
 - `backup` 服務每天容器時間 03:00 執行一次 `pg_dump`，gzip 壓縮後存入 `backups` volume。
-- 排程：`backup/crontab`；備份指令：`backup/backup.sh`。
+- 排程：`deploy/backup/crontab`；備份指令：`deploy/backup/backup.sh`。
 - 超過 `BACKUP_RETENTION_DAYS`（預設 14 天）的備份會在每次執行後刪除。
 
 **立即觸發備份**：
