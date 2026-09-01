@@ -127,11 +127,28 @@ function filenameFromContentDisposition(header: string | null): string {
 // plain navigation/link, since auth here is a Bearer token (not a cookie)
 // and the browser needs the Authorization header attached to the request.
 // Not migrated to apiFetch: the response is a Blob, not JSON.
+// Converts a browser-local YYYY-MM-DD calendar date (as produced by a
+// native <input type="date">) into the UTC instant marking its start or
+// end IN THE USER'S OWN LOCAL TIMEZONE — the browser already knows this
+// timezone, so computing the boundary here (rather than assuming UTC on
+// the server) is what makes the exported range match the calendar day the
+// user actually selected. `T00:00:00.000`/`T23:59:59.999` with no explicit
+// offset is parsed by the JS Date constructor as local time, unlike a
+// bare date-only string (which the spec mandates UTC) — that distinction
+// is exactly what this function relies on. See the security audit finding
+// this closes.
+export function localDateToUtcInstant(date: string, endOfDay: boolean): string {
+  const time = endOfDay ? '23:59:59.999' : '00:00:00.000';
+  return new Date(`${date}T${time}`).toISOString();
+}
+
 export async function exportRepairsCsv(range?: {
   from: string;
   to: string;
 }): Promise<void> {
-  const query = range ? `?from=${range.from}&to=${range.to}` : '';
+  const query = range
+    ? `?from=${encodeURIComponent(localDateToUtcInstant(range.from, false))}&to=${encodeURIComponent(localDateToUtcInstant(range.to, true))}`
+    : '';
   const res = await fetch(`${API_BASE_URL}/repairs/export${query}`, {
     headers: authHeaders(),
   });

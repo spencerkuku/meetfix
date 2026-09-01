@@ -942,7 +942,7 @@ describe('Repairs (e2e)', () => {
       expect(pendingRow).toContain('待處理,,'); // 狀態,維修人員(空白),管理員回覆(空白)
     });
 
-    it('filters exported tickets by createdAt date range, inclusive of the full end day', async () => {
+    it('filters exported tickets by createdAt date range, inclusive of the full end day (precise instants, as the frontend now sends)', async () => {
       const inRangeId = await createTicket('匯出範圍內');
       const beforeRangeId = await createTicket('匯出範圍前');
       const afterRangeId = await createTicket('匯出範圍後');
@@ -961,13 +961,44 @@ describe('Repairs (e2e)', () => {
       });
 
       const res = await apiRequest(app)
-        .get('/repairs/export?from=2026-03-10&to=2026-03-20')
+        .get(
+          '/repairs/export?from=2026-03-10T00:00:00.000Z&to=2026-03-20T23:59:59.999Z',
+        )
         .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
 
       expect(res.text).toContain('匯出範圍內');
       expect(res.text).not.toContain('匯出範圍前');
       expect(res.text).not.toContain('匯出範圍後');
+    });
+
+    it('filters by the exact instant received, rather than assuming the value is a UTC calendar day — the timezone bug this closes', async () => {
+      // A non-UTC deployment's frontend now sends the precise UTC instant
+      // for e.g. 2026-03-16 00:00:00 Asia/Taipei (UTC+8), which is
+      // 2026-03-15T16:00:00.000Z, not UTC midnight of either day. Before
+      // the fix, the backend always treated any date-only-looking value as
+      // if it marked a UTC day boundary, silently shifting this exact
+      // scenario by up to a day.
+      const justBeforeId = await createTicket('剛好在邊界前');
+      const justAfterId = await createTicket('剛好在邊界後');
+      await prisma.repairTicket.update({
+        where: { id: justBeforeId },
+        data: { createdAt: new Date('2026-03-15T15:59:59.999Z') },
+      });
+      await prisma.repairTicket.update({
+        where: { id: justAfterId },
+        data: { createdAt: new Date('2026-03-15T16:00:00.000Z') },
+      });
+
+      const res = await apiRequest(app)
+        .get(
+          '/repairs/export?from=2026-03-15T16:00:00.000Z&to=2026-12-31T23:59:59.999Z',
+        )
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(200);
+
+      expect(res.text).not.toContain('剛好在邊界前');
+      expect(res.text).toContain('剛好在邊界後');
     });
 
     it('excludes soft-deleted Repair Tickets from the export', async () => {
@@ -1025,7 +1056,9 @@ describe('Repairs (e2e)', () => {
       await createTicket('稽核紀錄測試地點');
 
       await apiRequest(app)
-        .get('/repairs/export?from=2026-01-01&to=2026-12-31')
+        .get(
+          '/repairs/export?from=2026-01-01T00:00:00.000Z&to=2026-12-31T23:59:59.999Z',
+        )
         .set('Authorization', `Bearer ${facilityManagerToken}`)
         .expect(200);
 

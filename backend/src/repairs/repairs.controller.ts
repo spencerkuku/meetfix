@@ -34,18 +34,20 @@ import {
   repairPhotoUrl,
 } from './repair-upload.config';
 
-// `from`/`to` come in as plain YYYY-MM-DD query strings from an HTML date
-// input. `endOfDay` pushes the "to" bound to 23:59:59.999 the same day so
-// the range is inclusive of that whole day, not just its midnight instant.
+// `from`/`to` arrive as precise ISO instants — the frontend converts the
+// user's local calendar-day selection to the correct UTC boundary itself
+// (see services/repairs.ts's localDateToUtcInstant), since the browser is
+// the only place that actually knows the requesting user's timezone.
+// Parsing the value directly here, rather than assuming it's a bare UTC
+// calendar day and re-deriving day boundaries, is what makes the filtered
+// range match the calendar day the user actually selected. See the
+// security audit finding this closes.
 function parseDateQueryParam(
   value: string | undefined,
   paramName: string,
-  endOfDay: boolean,
 ): Date | undefined {
   if (!value) return undefined;
-  const date = new Date(
-    `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`,
-  );
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new BadRequestException(`Invalid ${paramName} date`);
   }
@@ -78,8 +80,8 @@ export class RepairsController {
     @Query('to') to: string | undefined,
     @Res() res: Response,
   ) {
-    const fromDate = parseDateQueryParam(from, 'from', false);
-    const toDate = parseDateQueryParam(to, 'to', true);
+    const fromDate = parseDateQueryParam(from, 'from');
+    const toDate = parseDateQueryParam(to, 'to');
     if (fromDate && toDate && fromDate > toDate) {
       throw new BadRequestException('from must not be after to');
     }
