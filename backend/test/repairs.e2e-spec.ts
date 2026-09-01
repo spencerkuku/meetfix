@@ -686,7 +686,9 @@ describe('Repairs (e2e)', () => {
         .expect(201);
       const id = (created.body as RepairTicketResponse).id;
       createdUploadPaths.push(
-        uploadFilePath((created.body as RepairTicketResponse).imageUrl as string),
+        uploadFilePath(
+          (created.body as RepairTicketResponse).imageUrl as string,
+        ),
       );
 
       const res = await apiRequest(app)
@@ -712,7 +714,9 @@ describe('Repairs (e2e)', () => {
         .expect(201);
       const id = (created.body as RepairTicketResponse).id;
       createdUploadPaths.push(
-        uploadFilePath((created.body as RepairTicketResponse).imageUrl as string),
+        uploadFilePath(
+          (created.body as RepairTicketResponse).imageUrl as string,
+        ),
       );
 
       const res = await apiRequest(app)
@@ -891,7 +895,9 @@ describe('Repairs (e2e)', () => {
       expect(res.headers['content-type']).toContain('text/csv');
       expect(res.headers['content-disposition']).toContain('attachment');
       expect(res.text.charCodeAt(0)).toBe(0xfeff);
-      expect(res.text).toContain('地點,分類,描述,狀態,維修人員,管理員回覆,建立時間');
+      expect(res.text).toContain(
+        '地點,分類,描述,狀態,維修人員,管理員回覆,建立時間',
+      );
       expect(res.text).toContain('匯出測試地點 A');
       expect(res.text).toContain('待處理');
       // Reporter PII (name/class/phone) is deliberately excluded from the
@@ -1170,6 +1176,35 @@ describe('Repair Ticket rate limiting (e2e)', () => {
         break;
       }
       expect(res.status).toBe(201);
+    }
+    expect(sawThrottled).toBe(true);
+  });
+
+  it('rejects a GET /repairs/export burst past the configured limit with 429', async () => {
+    const { user: facilityManager } = await authService.loginWithGoogle({
+      googleSub: 'sub-throttle-export-fm@school.edu.tw',
+      email: 'throttle-export-fm@school.edu.tw',
+      name: 'throttle-export-fm@school.edu.tw',
+      hostedDomain: 'school.edu.tw',
+    });
+    await prisma.user.update({
+      where: { id: facilityManager.id },
+      data: { role: 'FACILITY_MANAGER' },
+    });
+    const fmCode = authService.createLoginCode(facilityManager.id);
+    const { accessToken: fmToken } =
+      await authService.exchangeLoginCode(fmCode);
+
+    let sawThrottled = false;
+    for (let i = 0; i < 20; i++) {
+      const res = await apiRequest(app)
+        .get('/repairs/export')
+        .set('Authorization', `Bearer ${fmToken}`);
+      if (res.status === 429) {
+        sawThrottled = true;
+        break;
+      }
+      expect(res.status).toBe(200);
     }
     expect(sawThrottled).toBe(true);
   });

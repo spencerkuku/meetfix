@@ -64,9 +64,14 @@ export class RepairsController {
 
   // FACILITY_MANAGER/ADMIN-only bulk export. No other GET route shares this
   // path, so there's no route-ordering ambiguity with findAll() above.
+  // Rate limited: unthrottled, this endpoint let any FACILITY_MANAGER/ADMIN
+  // script an unbounded flood of full-table-scanning export calls against
+  // the shared database and Audit Log Entry table. See the security audit
+  // finding this closes.
   @Get('export')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ThrottlerGuard)
   @Roles(Role.FACILITY_MANAGER, Role.ADMIN)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async exportCsv(
     @CurrentUser() user: User,
     @Query('from') from: string | undefined,
