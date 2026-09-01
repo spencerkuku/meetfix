@@ -1017,6 +1017,32 @@ describe('Bookings (e2e)', () => {
         .expect(409);
     });
 
+    it('rescheduling an approved Booking to a Room that never requires approval clears the review trail', async () => {
+      const { id } = await createDecided('approve');
+      const slot = nextSlot();
+      await apiRequest(app)
+        .patch(`/bookings/${id}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ roomId: openRoomId, ...slot })
+        .expect(200);
+
+      const rescheduled = await prisma.booking.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(rescheduled.reviewedAt).toBeNull();
+      expect(rescheduled.reviewedById).toBeNull();
+
+      // Reverting must now be rejected exactly like any other never-
+      // reviewed, auto-CONFIRMED Booking (see the test above) — before the
+      // fix, the stale reviewedAt carried over from the original Room's
+      // approval let this incorrectly succeed and force the Booking back
+      // into PENDING_APPROVAL on a Room that was never under review.
+      await apiRequest(app)
+        .patch(`/bookings/${id}/revert`)
+        .set('Authorization', `Bearer ${facilityManagerToken}`)
+        .expect(409);
+    });
+
     it('reverting to PENDING_APPROVAL clears the review trail so it can be decided again', async () => {
       const { id } = await createDecided('approve');
       await apiRequest(app)
@@ -1077,7 +1103,9 @@ describe('Bookings (e2e)', () => {
         createdAt: string;
       }>;
       expect(
-        body.every((e) => ['BOOKING_APPROVAL', 'BOOKING_REVERT'].includes(e.action)),
+        body.every((e) =>
+          ['BOOKING_APPROVAL', 'BOOKING_REVERT'].includes(e.action),
+        ),
       ).toBe(true);
       expect(body.every((e) => e.targetType === 'Booking')).toBe(true);
 

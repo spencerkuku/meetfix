@@ -204,7 +204,12 @@ export class BookingsService {
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Booking not found');
     }
-    assertOwnerOrAdmin(existing, userId, role, 'You can only edit your own Bookings');
+    assertOwnerOrAdmin(
+      existing,
+      userId,
+      role,
+      'You can only edit your own Bookings',
+    );
     if (!isActiveBooking(existing.status)) {
       throw new BadRequestException(
         'Only a CONFIRMED or PENDING_APPROVAL Booking can be edited',
@@ -221,7 +226,9 @@ export class BookingsService {
       dto.startTime !== undefined ||
       dto.endTime !== undefined;
 
-    const startTime = dto.startTime ? new Date(dto.startTime) : existing.startTime;
+    const startTime = dto.startTime
+      ? new Date(dto.startTime)
+      : existing.startTime;
     const endTime = dto.endTime ? new Date(dto.endTime) : existing.endTime;
     const roomId = dto.roomId ?? existing.roomId;
     const previousStatus = existing.status;
@@ -279,7 +286,22 @@ export class BookingsService {
               ...(dto.description !== undefined
                 ? { description: dto.description }
                 : {}),
-              ...(isRescheduling ? { roomId, startTime, endTime, status } : {}),
+              // reviewedAt/reviewedById are cleared on every reschedule —
+              // they must only ever describe a review decision made about
+              // the Booking's CURRENT room/slot. Otherwise a stale
+              // approval from a Room this Booking no longer occupies could
+              // make revert() treat an effectively never-reviewed Booking
+              // as eligible. See the security audit finding this closes.
+              ...(isRescheduling
+                ? {
+                    roomId,
+                    startTime,
+                    endTime,
+                    status,
+                    reviewedAt: null,
+                    reviewedById: null,
+                  }
+                : {}),
             },
           });
           if (result.count === 0) {
