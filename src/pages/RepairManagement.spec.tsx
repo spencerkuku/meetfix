@@ -72,55 +72,58 @@ function renderRepairManagement() {
   );
 }
 
-describe('RepairManagement — reply affordance in the ticket list', () => {
+describe('RepairManagement — clicking a ticket row opens the detail panel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(authService.fetchCurrentUser).mockResolvedValue(makeUser());
   });
 
-  it('shows an unanswered-style detail button for a ticket with no adminReply yet', async () => {
-    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket({ adminReply: undefined })]);
-    renderRepairManagement();
-
-    const table = await screen.findByRole('table');
-    const detailButton = within(table).getByRole('button', { name: '詳情' });
-    expect(detailButton.className).toMatch(/text-slate-500/);
-  });
-
-  it('shows an answered-style detail button for a ticket that already has an adminReply', async () => {
-    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
-      makeTicket({ adminReply: '已更換投影機燈泡' }),
-    ]);
-    renderRepairManagement();
-
-    const table = await screen.findByRole('table');
-    const detailButton = within(table).getByRole('button', { name: '查看回覆' });
-    expect(detailButton.className).toMatch(/text-blue-700/);
-  });
-
-  it('opens the detail modal when the detail button is clicked', async () => {
+  it('opens the detail panel when a ticket row is clicked', async () => {
     vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket()]);
     renderRepairManagement();
 
     const table = await screen.findByRole('table');
-    within(table).getByRole('button', { name: '詳情' }).click();
+    const row = within(table).getAllByRole('row')[1]; // [0] is the header row
+    fireEvent.click(row);
 
     await screen.findByText('維修回覆與備註');
   });
 
-  it('renders a single detail button for tickets in every status', async () => {
-    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
-      makeTicket({ id: 't1', status: RepairStatus.PENDING }),
-      makeTicket({ id: 't2', status: RepairStatus.IN_PROGRESS }),
-      makeTicket({ id: 't3', status: RepairStatus.COMPLETED, resolvedByName: '維修員' }),
-    ]);
+  it('opens the detail panel via keyboard when a focused row gets Enter', async () => {
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket()]);
     renderRepairManagement();
 
-    // The default "待處理/處理中" tab hides COMPLETED tickets — switch to
-    // "所有工單" so all three statuses are on screen at once.
-    fireEvent.click(await screen.findByText('所有工單'));
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[1];
+    fireEvent.keyDown(row, { key: 'Enter' });
+
+    await screen.findByText('維修回覆與備註');
+  });
+
+  it('highlights the row currently open in the detail panel', async () => {
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([makeTicket()]);
+    renderRepairManagement();
 
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('button', { name: '詳情' })).toHaveLength(3);
+    const row = within(table).getAllByRole('row')[1];
+    fireEvent.click(row);
+
+    await screen.findByText('維修回覆與備註');
+    expect(row.className).toMatch(/bg-blue-50/);
+  });
+
+  it('does not open the detail panel when clicking a status action button inside the row', async () => {
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([
+      makeTicket({ status: RepairStatus.PENDING }),
+    ]);
+    vi.mocked(repairsService.updateRepairTicket).mockResolvedValue(
+      makeTicket({ status: RepairStatus.IN_PROGRESS }),
+    );
+    renderRepairManagement();
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('button', { name: '接手處理' }));
+
+    expect(screen.queryByText('維修回覆與備註')).not.toBeInTheDocument();
   });
 });

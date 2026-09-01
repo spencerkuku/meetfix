@@ -6,7 +6,7 @@ import { Button } from '../components/Button';
 import { useToast } from '../components/Toast';
 import { nextRepairStatus, revertRepairStatus, RepairStatusValue } from 'repair-visibility';
 import { exportRepairsCsv } from '../services/repairs';
-import { CheckCircle, Download, Image as ImageIcon, Info, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn, Wrench } from 'lucide-react';
+import { CheckCircle, Download, Image as ImageIcon, MessageSquare, RotateCcw, X, User, Tag, MapPin, Phone, ClipboardList, ZoomIn, Wrench } from 'lucide-react';
 
 // One badge style per status — shared everywhere so PENDING/IN_PROGRESS/
 // COMPLETED read consistently (previously IN_PROGRESS and COMPLETED shared
@@ -26,26 +26,11 @@ const STATUS_CHANGE_TOAST_LABEL: Record<RepairStatus, string> = {
   [RepairStatus.COMPLETED]: '案件已標記為完成',
 };
 
-const REVERT_ACTION_LABEL: Record<RepairStatus, string> = {
-  [RepairStatus.PENDING]: '',
-  [RepairStatus.IN_PROGRESS]: '退回待處理',
-  [RepairStatus.COMPLETED]: '重新開啟（退回處理中）',
-};
-
 // repair-visibility's status functions are string-union-typed so the
 // package doesn't need to depend on this app's Prisma-derived enum — the
 // values are identical, so the cast is safe.
 const toStatusValue = (status: RepairStatus): RepairStatusValue => status as unknown as RepairStatusValue;
 const fromStatusValue = (status: RepairStatusValue): RepairStatus => status as unknown as RepairStatus;
-
-// A single pending REVERT awaiting explicit confirmation. Forward actions
-// (接手處理/標記完成) apply immediately with an Undo toast instead — only
-// reverts (which undo another user's progress) still gate on a modal.
-type PendingRevert = {
-  ticket: RepairTicket;
-  status: RepairStatus;
-  label: string;
-};
 
 export const RepairManagement: React.FC = () => {
   const { repairs, updateRepair } = useRepairsData();
@@ -86,32 +71,83 @@ export const RepairManagement: React.FC = () => {
   const viewingTicket = repairs.find(r => r.id === viewingId) || null;
   const [replyText, setReplyText] = useState('');
 
-  // Revert confirmation and inline photo preview.
-  const [pendingRevert, setPendingRevert] = useState<PendingRevert | null>(null);
+  // Inline photo preview, and a guard against silently discarding an
+  // unsent reply when the panel closes — or when switching straight to a
+  // different ticket, which is now the expected flow since the panel sits
+  // beside the list instead of blocking it.
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [confirmDiscardReply, setConfirmDiscardReply] = useState(false);
+  const [pendingSwitchTicket, setPendingSwitchTicket] = useState<RepairTicket | null>(null);
+
+  const hasUnsavedReply = !!viewingTicket && replyText.trim() !== (viewingTicket.adminReply || '').trim();
 
   // Escape closes whichever overlay is currently on top — lightbox, then
-  // revert confirm, then the detail drawer — matching their visual stacking.
+  // the discard-reply guard, then the detail drawer — matching their visual
+  // stacking. Escaping out of the discard guard cancels it (keeps editing)
+  // rather than discarding, since Escape shouldn't be the fast path to
+  // losing typed text.
   useEffect(() => {
-    if (!previewImageUrl && !pendingRevert && !viewingId) return;
+    if (!previewImageUrl && !confirmDiscardReply && !viewingId) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (previewImageUrl) setPreviewImageUrl(null);
-      else if (pendingRevert) setPendingRevert(null);
+      else if (confirmDiscardReply) cancelDiscard();
       else closeDetail();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [previewImageUrl, pendingRevert, viewingId]);
+  }, [previewImageUrl, confirmDiscardReply, viewingId]);
 
   const openDetail = (ticket: RepairTicket) => {
     setViewingId(ticket.id);
     setReplyText(ticket.adminReply || '');
   };
 
-  const closeDetail = () => {
+  // The row action still calls this — it only prompts when jumping to a
+  // *different* ticket while the current one has an unsent edit.
+  const requestOpenDetail = (ticket: RepairTicket) => {
+    if (hasUnsavedReply && viewingId !== ticket.id) {
+      setPendingSwitchTicket(ticket);
+      setConfirmDiscardReply(true);
+      return;
+    }
+    openDetail(ticket);
+  };
+
+  const forceCloseDetail = () => {
     setViewingId(null);
     setReplyText('');
+    setConfirmDiscardReply(false);
+    setPendingSwitchTicket(null);
+  };
+
+  // Only prompts when there's an unsent edit — otherwise closes right away.
+  const closeDetail = () => {
+    if (hasUnsavedReply) {
+      setPendingSwitchTicket(null);
+      setConfirmDiscardReply(true);
+      return;
+    }
+    forceCloseDetail();
+  };
+
+  // The discard-guard's confirm action: either finish switching to the
+  // ticket that was clicked, or just close, depending on what triggered it.
+  const confirmDiscardAndProceed = () => {
+    const next = pendingSwitchTicket;
+    setConfirmDiscardReply(false);
+    setPendingSwitchTicket(null);
+    if (next) {
+      openDetail(next);
+    } else {
+      setViewingId(null);
+      setReplyText('');
+    }
+  };
+
+  const cancelDiscard = () => {
+    setConfirmDiscardReply(false);
+    setPendingSwitchTicket(null);
   };
 
   const handleStatusUpdate = async (id: string, status: RepairStatus) => {
@@ -126,15 +162,21 @@ export const RepairManagement: React.FC = () => {
     }
   };
 
-  // Forward action (接手處理 / 標記完成): apply immediately, no confirmation
-  // — the toast's Undo action reverts via revertRepairStatus (the same
-  // policy function the confirm-modal path uses), not a captured value, so
-  // Undo can't drift from that policy if the status model ever changes.
-  const handleAdvance = async (ticket: RepairTicket) => {
-    const targetValue = nextRepairStatus(toStatusValue(ticket.status));
+  // Status changes always apply immediately with an Undo toast — forward
+  // (接手處理/標記完成) and backward (退回待處理/重新開啟) used to differ,
+  // one instant-with-undo and the other gated on a confirm modal, which felt
+  // inconsistent for what's conceptually the same action. Both directions
+  // now share this one path; `step` picks which way to move and `undoStep`
+  // computes the opposite move for the toast's Undo action.
+  const applyStatusChange = async (
+    ticket: RepairTicket,
+    step: (v: RepairStatusValue) => RepairStatusValue | null,
+    undoStep: (v: RepairStatusValue) => RepairStatusValue | null,
+  ) => {
+    const targetValue = step(toStatusValue(ticket.status));
     if (!targetValue) return;
     const target = fromStatusValue(targetValue);
-    const undoTargetValue = revertRepairStatus(targetValue);
+    const undoTargetValue = undoStep(targetValue);
 
     setBusyId(ticket.id);
     try {
@@ -152,19 +194,8 @@ export const RepairManagement: React.FC = () => {
     }
   };
 
-  const openRevertConfirm = (ticket: RepairTicket) => {
-    const targetValue = revertRepairStatus(toStatusValue(ticket.status));
-    if (!targetValue) return;
-    const target = fromStatusValue(targetValue);
-    setPendingRevert({ ticket, status: target, label: REVERT_ACTION_LABEL[ticket.status] });
-  };
-
-  const confirmPendingRevert = async () => {
-    if (!pendingRevert) return;
-    const { ticket, status } = pendingRevert;
-    setPendingRevert(null);
-    await handleStatusUpdate(ticket.id, status);
-  };
+  const handleAdvance = (ticket: RepairTicket) => applyStatusChange(ticket, nextRepairStatus, revertRepairStatus);
+  const handleRevert = (ticket: RepairTicket) => applyStatusChange(ticket, revertRepairStatus, nextRepairStatus);
 
   const handleReplySubmit = async (id: string) => {
     setBusyId(id);
@@ -204,7 +235,7 @@ export const RepairManagement: React.FC = () => {
           </Button>
           <button
             disabled={busyId === ticket.id}
-            onClick={() => openRevertConfirm(ticket)}
+            onClick={() => handleRevert(ticket)}
             className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded"
             title="退回待處理"
             aria-label="退回待處理"
@@ -216,7 +247,7 @@ export const RepairManagement: React.FC = () => {
       {ticket.status === RepairStatus.COMPLETED && (
         <button
           disabled={busyId === ticket.id}
-          onClick={() => openRevertConfirm(ticket)}
+          onClick={() => handleRevert(ticket)}
           className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded"
           title="重新開啟"
           aria-label="重新開啟"
@@ -224,25 +255,24 @@ export const RepairManagement: React.FC = () => {
           <RotateCcw size={14}/>
         </button>
       )}
-      <button
-        onClick={() => openDetail(ticket)}
-        className={
-          ticket.adminReply
-            ? 'flex items-center gap-1 text-xs font-medium text-blue-700 hover:bg-blue-50 px-2 py-1.5 rounded whitespace-nowrap'
-            : 'flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-2 py-1.5 rounded whitespace-nowrap'
-        }
-        title={ticket.adminReply ? '查看詳情與回覆' : '查看詳情並回覆'}
-      >
-        {ticket.adminReply ? <MessageSquare size={14}/> : <Info size={14}/>}
-        {ticket.adminReply ? '查看回覆' : '詳情'}
-      </button>
     </>
   );
 
   return (
     <>
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    {/* The list and the detail panel are flex-row siblings on md+, so the
+        panel squeezes the list's width instead of overlaying it. md:items-start
+        opts both out of the default stretch-to-match-sibling behavior — the
+        panel has its own flex-1/overflow-y-auto body internally, and
+        stretching it to an undefined (auto) row height created a circular
+        sizing loop that blew its height up past the page. Each side just
+        sizes to its own content instead; the panel additionally caps itself
+        with md:sticky + md:max-h so it never grows past the viewport.
+        Below md there's no room for a side-by-side layout, so this
+        collapses back to normal stacked, whole-page scrolling. */}
+    <div className="flex flex-col md:flex-row gap-6 md:items-start">
+    <div className="flex flex-col min-w-0 flex-1 space-y-6">
+      <div className="flex items-center justify-between flex-shrink-0">
         <div>
            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
              <ClipboardList className="text-blue-600"/> 報修作業中心
@@ -254,7 +284,7 @@ export const RepairManagement: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 border-b border-gray-200">
+      <div className="flex items-center gap-4 border-b border-gray-200 flex-shrink-0">
         {(['ACTIVE', 'COMPLETED', 'ALL'] as const).map((tab) => (
           <button
             key={tab}
@@ -266,7 +296,7 @@ export const RepairManagement: React.FC = () => {
         ))}
       </div>
 
-      <div className="bg-white rounded-lg border shadow-sm p-4 flex flex-wrap items-end gap-3">
+      <div className="bg-white rounded-lg border shadow-sm p-4 flex flex-wrap items-end gap-3 flex-shrink-0">
         <div>
           <label htmlFor="export-from" className="block text-xs font-medium text-slate-500 mb-1">起始日期</label>
           <input
@@ -309,7 +339,7 @@ export const RepairManagement: React.FC = () => {
         </Button>
       </div>
 
-      <div className="bg-white rounded-lg border shadow-sm overflow-hidden animate-fade-in">
+      <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
         {filteredRepairs.length > 0 ? (
           <>
             {/* Desktop table — md and up */}
@@ -327,7 +357,19 @@ export const RepairManagement: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredRepairs.map(ticket => (
-                    <tr key={ticket.id} className="text-sm align-top hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={ticket.id}
+                      onClick={() => requestOpenDetail(ticket)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
+                        requestOpenDetail(ticket);
+                      }}
+                      tabIndex={0}
+                      className={`text-sm align-top cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 ${
+                        ticket.id === viewingId ? 'bg-blue-50/70 hover:bg-blue-50/70' : 'hover:bg-slate-50/60'
+                      }`}
+                    >
                       <td className="p-3 pl-4 whitespace-nowrap">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLE[ticket.status].badge}`}>
                           {STATUS_STYLE[ticket.status].label}
@@ -348,7 +390,7 @@ export const RepairManagement: React.FC = () => {
                           <p className="text-slate-700 line-clamp-2 flex-1">{ticket.description}</p>
                           {ticket.imageUrl && (
                             <button
-                              onClick={() => setPreviewImageUrl(ticket.imageUrl!)}
+                              onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(ticket.imageUrl!); }}
                               className="text-slate-400 hover:text-blue-600 flex-shrink-0 mt-0.5"
                               title="有附照片，點擊放大"
                             >
@@ -367,7 +409,7 @@ export const RepairManagement: React.FC = () => {
                       <td className="p-3 text-slate-500 whitespace-nowrap">{ticket.userName}</td>
                       <td className="p-3 text-slate-500 whitespace-nowrap">{new Date(ticket.createdAt).toLocaleDateString()}</td>
 
-                      <td className="p-3 pr-4">
+                      <td className="p-3 pr-4" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           {renderTicketActions(ticket)}
                         </div>
@@ -381,7 +423,17 @@ export const RepairManagement: React.FC = () => {
             {/* Mobile cards — below md */}
             <div className="md:hidden divide-y divide-gray-100">
               {filteredRepairs.map(ticket => (
-                <div key={ticket.id} className="p-4 space-y-2">
+                <div
+                  key={ticket.id}
+                  onClick={() => requestOpenDetail(ticket)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    requestOpenDetail(ticket);
+                  }}
+                  tabIndex={0}
+                  className={`p-4 space-y-2 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 ${ticket.id === viewingId ? 'bg-blue-50/70' : ''}`}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLE[ticket.status].badge}`}>
                       {STATUS_STYLE[ticket.status].label}
@@ -402,7 +454,7 @@ export const RepairManagement: React.FC = () => {
                     <p className="text-slate-700 text-sm line-clamp-3 flex-1">{ticket.description}</p>
                     {ticket.imageUrl && (
                       <button
-                        onClick={() => setPreviewImageUrl(ticket.imageUrl!)}
+                        onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(ticket.imageUrl!); }}
                         className="text-slate-400 hover:text-blue-600 flex-shrink-0 mt-0.5"
                         title="有附照片，點擊放大"
                         aria-label="放大照片"
@@ -421,7 +473,10 @@ export const RepairManagement: React.FC = () => {
 
                   <div className="text-xs text-slate-500">回報人：{ticket.userName}</div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100">
+                  <div
+                    className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {renderTicketActions(ticket)}
                   </div>
                 </div>
@@ -437,11 +492,15 @@ export const RepairManagement: React.FC = () => {
       </div>
     </div>
 
-      {/* Ticket Detail Drawer — photo, full description, reporter info,
-          status change, and reply all live here as one surface. */}
+      {/* Ticket Detail Panel — on md+ it's a real flex sibling of the list
+          (border-left, full column height, no backdrop) so the list gets
+          squeezed rather than covered: a push/squeeze master-detail layout.
+          Below md there's no room to squeeze, so it takes over the full
+          screen instead — a full-page swap, not a popup. Photo, full
+          description, reporter info, status change, and reply all live
+          here as one surface. */}
       {viewingTicket && (
-        <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/70 p-4 pt-12 sm:pt-20 overflow-y-auto" onClick={closeDetail}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-40 bg-white flex flex-col md:static md:inset-auto md:z-auto md:w-[400px] md:flex-shrink-0 md:sticky md:top-0 md:h-[calc(100vh_-_3rem)] md:border-l md:border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-start flex-shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -459,7 +518,7 @@ export const RepairManagement: React.FC = () => {
               <button onClick={closeDetail} className="text-slate-400 hover:text-slate-600" aria-label="關閉"><X/></button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4">
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
               {/* Photo — default-expanded, no click needed to see it clearly.
                   Click still opens the full-size lightbox. Omitted entirely
                   when the ticket has no photo, instead of a placeholder. */}
@@ -516,7 +575,7 @@ export const RepairManagement: React.FC = () => {
                       size="sm"
                       variant="outline"
                       disabled={busyId === viewingTicket.id}
-                      onClick={() => openRevertConfirm(viewingTicket)}
+                      onClick={() => handleRevert(viewingTicket)}
                       className="text-slate-500"
                     >
                       <RotateCcw size={14} className="mr-1"/> 退回待處理
@@ -529,7 +588,7 @@ export const RepairManagement: React.FC = () => {
                     size="sm"
                     variant="outline"
                     disabled={busyId === viewingTicket.id}
-                    onClick={() => openRevertConfirm(viewingTicket)}
+                    onClick={() => handleRevert(viewingTicket)}
                     className="text-slate-500"
                   >
                     <RotateCcw size={14} className="mr-1"/> 重新開啟
@@ -538,57 +597,52 @@ export const RepairManagement: React.FC = () => {
               </div>
 
               {/* Reply — merged in from the old standalone modal so detail,
-                  status, and reply are all one surface. */}
+                  status, and reply are all one surface. Submit lives in the
+                  fixed footer below, not here, so it's always reachable
+                  without scrolling the body. */}
               <div className="pt-2 border-t border-gray-100 space-y-2">
                 <label className="block text-sm font-bold text-slate-700">維修回覆與備註</label>
                 <textarea
-                  rows={3}
+                  rows={5}
                   value={replyText}
                   onChange={e => setReplyText(e.target.value)}
                   className="w-full text-sm border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                   placeholder="例如：已更換零件，測試正常..."
                 />
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    isLoading={busyId === viewingTicket.id}
-                    disabled={busyId === viewingTicket.id}
-                    onClick={() => handleReplySubmit(viewingTicket.id)}
-                  >
-                    {viewingTicket.adminReply ? '更新回覆' : '發送回覆'}
-                  </Button>
-                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Revert Confirmation — the only status change still gated on an
-          explicit confirm; forward progress applies immediately with an
-          Undo toast instead (see handleAdvance). */}
-      {pendingRevert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setPendingRevert(null)}>
+            <div className="px-6 py-4 border-t bg-white flex justify-end flex-shrink-0">
+              <Button
+                size="sm"
+                isLoading={busyId === viewingTicket.id}
+                disabled={busyId === viewingTicket.id}
+                onClick={() => handleReplySubmit(viewingTicket.id)}
+              >
+                {viewingTicket.adminReply ? '更新回覆' : '發送回覆'}
+              </Button>
+            </div>
+          </div>
+      )}
+    </div>
+
+      {/* Discard-reply guard — only shown when there's an unsent edit in the
+          reply box and the panel is either closing (Esc / close button) or
+          switching to a different ticket, so typed-but-unsubmitted text
+          can't silently disappear. */}
+      {confirmDiscardReply && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={cancelDiscard}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-lg text-slate-800 mb-2">確定要退回狀態嗎？</h3>
-            <p className="text-sm text-slate-500 mb-1">
-              「{pendingRevert.ticket.location}」— {pendingRevert.ticket.description}
-            </p>
+            <h3 className="font-bold text-lg text-slate-800 mb-2">要捨棄未送出的回覆嗎？</h3>
             <p className="text-sm text-slate-600 mb-6">
-              將狀態變更為
-              <span className={`mx-1 text-xs font-bold px-2 py-0.5 rounded border ${STATUS_STYLE[pendingRevert.status].badge}`}>
-                {STATUS_STYLE[pendingRevert.status].label}
-              </span>
-              ，回報人會收到通知。
+              {pendingSwitchTicket
+                ? '切換到其他工單前，剛剛輸入但尚未送出的回覆內容將會消失。'
+                : '關閉後，剛剛輸入但尚未送出的回覆內容將會消失。'}
             </p>
             <div className="flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setPendingRevert(null)}>取消</Button>
-              <Button
-                isLoading={busyId === pendingRevert.ticket.id}
-                onClick={confirmPendingRevert}
-                className="bg-slate-700 hover:bg-slate-800"
-              >
-                確認{pendingRevert.label}
+              <Button variant="ghost" onClick={cancelDiscard}>繼續編輯</Button>
+              <Button onClick={confirmDiscardAndProceed} className="bg-red-600 hover:bg-red-700">
+                {pendingSwitchTicket ? '捨棄並切換' : '捨棄並關閉'}
               </Button>
             </div>
           </div>
