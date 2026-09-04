@@ -2,26 +2,53 @@
 
 單一 `docker-compose` 堆疊：`api`（NestJS）、`postgres`、`backup`（排程 `pg_dump`）、`caddy`（反向代理，自動 HTTPS）。
 
+## 目錄
+
+- [前置需求](#前置需求)
+- [啟動步驟](#啟動步驟)
+- [環境變數](#環境變數)
+- [備份與還原](#備份與還原)
+- [停止／重置](#停止重置)
+
+## 前置需求
+
+- 主機已安裝 Docker 與 Docker Compose
+- 網域 DNS 已指向部署主機，且對外開放 80/443 埠（Caddy 需要自動核發 HTTPS 憑證）
+- Google Cloud Console 已建立 OAuth 用戶端（Client ID／Secret／redirect URI）
+
 ## 啟動步驟
 
 1. 複製環境變數範本並填入實際值：
+
    ```bash
    cp .env.example .env
    ```
+
 2. 正式環境務必設定：
-   - `POSTGRES_PASSWORD` 改掉預設值
-   - `SITE_ADDRESS` 填學校實際網域（例如 `meetfix.your-school.edu.tw`），DNS 需指向此主機，且對外開放 80/443
-   - `JWT_SECRET` 用 `openssl rand -hex 32` 產生
-   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` / `SCHOOL_GOOGLE_DOMAIN` / `FRONTEND_URL`
+
+   | 變數 | 說明 |
+   | --- | --- |
+   | `POSTGRES_PASSWORD` | 改掉預設值 |
+   | `SITE_ADDRESS` | 填學校實際網域（例如 `meetfix.your-school.edu.tw`），DNS 需指向此主機，且對外開放 80/443 |
+   | `JWT_SECRET` | 用 `openssl rand -hex 32` 產生 |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | Google OAuth 憑證與 redirect URI |
+   | `SCHOOL_GOOGLE_DOMAIN` | 允許登入的 Google Workspace 網域 |
+   | `FRONTEND_URL` | 前端公開網址 |
+
 3. 啟動所有服務：
+
    ```bash
    docker compose up -d --build
    ```
+
    會建置 API 映像檔，容器啟動時自動套用尚未執行的 Prisma migration，並啟動 Postgres 與 Caddy。
+
 4. 確認服務正常：
+
    ```bash
    curl -sk https://localhost/health
    ```
+
    回傳 `{"status":"ok"}` 代表 Caddy → API → Postgres 都能正常連通。
 
 ## 環境變數
@@ -51,11 +78,13 @@
 - 超過 `BACKUP_RETENTION_DAYS`（預設 14 天）的備份會在每次執行後刪除。
 
 **立即觸發備份**：
+
 ```bash
 docker compose exec backup sh /backup.sh
 ```
 
 **列出備份檔**：
+
 ```bash
 docker compose exec backup ls -la /backups
 ```
@@ -63,26 +92,36 @@ docker compose exec backup ls -la /backups
 **還原流程**（一律還原到*全新*的 Postgres，絕不對正在運作中的資料庫執行還原）：
 
 1. 把備份檔從 volume 複製到主機：
+
    ```bash
    docker compose cp backup:/backups/meetfix-<timestamp>.sql.gz ./meetfix-restore.sql.gz
    ```
+
 2. 停止整個堆疊並刪除目前的資料庫 volume（先確認備份檔已安全複製出來；只是例行演練請改用可拋棄的 Postgres 容器，不要動正式的 `pgdata` volume）：
+
    ```bash
    docker compose down
    docker volume rm meetfix_pgdata
    ```
+
    （volume 名稱格式為 `<compose-project-name>_pgdata`；用 `docker volume ls` 確認實際名稱。）
+
 3. 讓 Postgres 以空資料庫重新啟動，等待健康：
+
    ```bash
    docker compose up -d postgres
    docker compose exec postgres sh -c 'until pg_isready -U "$POSTGRES_USER"; do sleep 1; done'
    ```
+
 4. 執行還原（備份檔已含完整 schema、資料與 Prisma migration 歷史）：
+
    ```bash
    set -a; source .env; set +a
    gunzip -c meetfix-restore.sql.gz | docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
    ```
+
 5. 啟動堆疊其餘服務（`api` 的 `prisma migrate deploy` 會看到 migration 都已套用過，不會重跑）：
+
    ```bash
    docker compose up -d
    ```
