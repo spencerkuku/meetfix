@@ -14,7 +14,7 @@
 
 - 主機已安裝 Docker 與 Docker Compose
 - 網域 DNS 已指向部署主機，且對外開放 80/443 埠（Caddy 需要自動核發 HTTPS 憑證）
-- Google Cloud Console 已建立 OAuth 用戶端（Client ID／Secret／redirect URI）
+- 若要啟用 Google 登入（選用）：Google Cloud Console 已建立 OAuth 用戶端（Client ID／Secret），並在該用戶端的「已授權的重新導向 URI」填入 `GOOGLE_CALLBACK_URL` 的值。未建立則留空對應變數即可，系統會自動略過 Google 登入，僅提供帳號密碼登入
 
 ## 啟動步驟
 
@@ -31,9 +31,7 @@
    | `POSTGRES_PASSWORD` | 改掉預設值 |
    | `SITE_ADDRESS` | 填學校實際網域（例如 `meetfix.your-school.edu.tw`），DNS 需指向此主機，且對外開放 80/443 |
    | `JWT_SECRET` | 用 `openssl rand -hex 32` 產生 |
-   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | Google OAuth 憑證與 redirect URI |
-   | `SCHOOL_GOOGLE_DOMAIN` | 允許登入的 Google Workspace 網域 |
-   | `FRONTEND_URL` | 前端公開網址 |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` / `SCHOOL_GOOGLE_DOMAIN` / `FRONTEND_URL` | 選用——要啟用 Google 登入才需要設定，見下方環境變數說明 |
 
 3. 啟動所有服務：
 
@@ -62,10 +60,10 @@
 | `VITE_API_URL` | 選填 | 前端 Vite 開發伺服器找 API 的位置；`docker compose` 部署不使用 |
 | `VITE_SCHOOL_NAME` | 選填 | Footer 顯示的校名；未設定時 footer 不顯示校名，只顯示系統名稱 |
 | `JWT_SECRET` | 必填 | 簽署 session JWT 的密鑰 |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 必填 | Google OAuth 憑證 |
-| `GOOGLE_CALLBACK_URL` | 必填 | 須與 Google Cloud Console 註冊的 redirect URI 完全一致 |
-| `SCHOOL_GOOGLE_DOMAIN` | 必填 | 允許登入的 Google Workspace 網域，其餘一律拒絕 |
-| `FRONTEND_URL` | 必填 | 前端公開網址，Google 登入後導回此處 |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 選填 | Google OAuth 憑證，取自 Google Cloud Console -> APIs & Services -> Credentials；兩者只要留空其中一個，系統就會視為不使用 Google 登入（不影響帳號密碼登入） |
+| `GOOGLE_CALLBACK_URL` | 選填（啟用 Google 登入才需要） | 須與該 OAuth 用戶端「已授權的重新導向 URI」(Authorized redirect URIs) 中填入的網址完全一致 |
+| `SCHOOL_GOOGLE_DOMAIN` | 選填（啟用 Google 登入才需要） | 允許登入的 Google Workspace 網域，其餘一律拒絕 |
+| `FRONTEND_URL` | 選填（啟用 Google 登入才需要） | 前端公開網址，Google 登入後導回此處；目前僅 Google 登入流程會用到 |
 | `BACKUP_RETENTION_DAYS` | 選填 | 備份保留天數；未設定時預設 14 天 |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` / `SEED_ADMIN_NAME` | 選填 | 首次啟動自動 bootstrap 的管理員帳號；未設定則跳過 |
 
