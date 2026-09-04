@@ -46,19 +46,6 @@ flowchart LR
 - **角色權限**：`USER` / `FACILITY_MANAGER` / `ADMIN` 三種固定角色（詳見 [`CONTEXT.md`](./CONTEXT.md)）
 - **雙重登入**：Google Workspace OAuth 或學校自建帳密
 
-Booking 的狀態機：
-
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING: 送出借用申請
-    PENDING --> CONFIRMED: 核准
-    PENDING --> REJECTED: 拒絕
-    CONFIRMED --> [*]
-    REJECTED --> [*]
-```
-
-刪除借用（Booking Deletion）是獨立於上述狀態機的動作：擁有者或 `ADMIN` 可將任一尚未開始的未來 Booking 從所有畫面中移除（軟刪除），無論其目前狀態為何。`CANCELLED` 狀態僅存在於歷史資料，目前沒有任何動作會產生新的 `CANCELLED` 紀錄。
-
 ## 快速開始
 
 以 Docker Compose 啟動完整堆疊：
