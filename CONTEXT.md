@@ -25,7 +25,7 @@ _Avoid_: Maintenance, Room Manager (the two separate roles this one replaces)
 Manages Rooms, Repair Categories, Role assignment, the Auto-Approved Domain list, and Account Approval for Pending Accounts. Role assignment, the Auto-Approved Domain list, and Account Approval are ADMIN-exclusive; Rooms and Repair Categories are shared with FACILITY_MANAGER. Holds no special booking/repair authority beyond that.
 
 **Account**:
-The credential record backing a User's ability to log in — either a Google Workspace identity or a school-issued email + password pair. Two Users cannot share one Account; every Account maps to exactly one User.
+The credential record backing a User's ability to log in — either a Google Workspace identity or a school-issued email + password pair. Two Users cannot share one Account; every Account maps to exactly one User. Google Workspace login is itself a per-deployment configuration detail, not a guarantee: it's only available when the deployment has `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` configured (see ADR-0005) — a school with no Google Workspace runs with password-only Accounts.
 _Avoid_: Login, Credentials
 
 **Account Status**:
