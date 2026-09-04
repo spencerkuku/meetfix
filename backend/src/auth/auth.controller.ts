@@ -16,6 +16,8 @@ import type { Response } from 'express';
 import type { User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { GoogleProfile } from './google-profile.interface';
+import { GoogleOAuthEnabledGuard } from './google-oauth-enabled.guard';
+import { isGoogleOAuthConfigured } from './google-oauth.config';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import type { ExchangeLoginCodeDto } from './exchange-login-code.dto';
@@ -31,15 +33,24 @@ export class AuthController {
     private readonly config: ConfigService,
   ) {}
 
+  // Tells the frontend whether Google OAuth is available for this
+  // deployment, so it can show/hide every Google-login affordance without
+  // duplicating the backend's own config check (see docs/adr/0005).
+  // Unauthenticated — this is deployment shape, not user data.
+  @Get('providers')
+  getProviders() {
+    return { googleEnabled: isGoogleOAuthConfigured(this.config) };
+  }
+
   @Get('google')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleOAuthEnabledGuard, AuthGuard('google'))
   googleLogin() {
     // Passport's google strategy handles the redirect to Google;
     // this handler body never runs.
   }
 
   @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleOAuthEnabledGuard, AuthGuard('google'))
   async googleCallback(
     @Req() req: { user: GoogleProfile; query: { state?: string } },
     @Res() res: Response,
@@ -84,7 +95,7 @@ export class AuthController {
   // can navigate the browser there directly without ever putting the
   // session's access token in a URL.
   @Get('google/link')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(GoogleOAuthEnabledGuard, JwtAuthGuard)
   googleLink(@CurrentUser() user: User) {
     return { url: this.authService.buildGoogleLinkUrl(user.id) };
   }

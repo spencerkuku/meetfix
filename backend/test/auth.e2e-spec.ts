@@ -4,6 +4,7 @@ import {
   INestApplication,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { App } from 'supertest/types';
@@ -318,6 +319,13 @@ describe('Auth (e2e)', () => {
     expect(location).not.toContain(
       encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
     );
+  });
+
+  it('GET /auth/providers reports googleEnabled: true when Google OAuth is configured', () => {
+    return apiRequest(app)
+      .get('/auth/providers')
+      .expect(200)
+      .expect({ googleEnabled: true });
   });
 
   describe('Google account linking', () => {
@@ -1108,5 +1116,92 @@ describe('Auth rate limiting (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ currentPassword: 'wrong', newPassword: 'newpassword456' })
       .expect(429);
+  });
+});
+
+// A school with no Google Workspace leaves GOOGLE_CLIENT_ID/SECRET blank
+// (see docs/adr/0005-optional-google-oauth.md) — this boots an independent
+// app instance with those two blanked via a ConfigService override, leaving
+// every other config value (DATABASE_URL, JWT_SECRET, ...) untouched, to
+// verify the app still boots and the feature disappears cleanly rather than
+// existing in a broken state.
+class ConfigServiceWithGoogleDisabled {
+  get<T = string>(key: string): T | undefined {
+    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET') {
+      return undefined;
+    }
+    return process.env[key] as unknown as T;
+  }
+}
+
+describe('Auth (e2e) — Google OAuth not configured', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue(permissiveThrottlerGuard)
+      .overrideProvider(ConfigService)
+      .useClass(ConfigServiceWithGoogleDisabled)
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    setApiPrefix(app);
+    prisma = moduleFixture.get(PrismaService);
+    await app.init();
+
+    // Auto-Approved Domain (a separate concept from Google's hd check —
+    // see CONTEXT.md) so the password registration below activates
+    // immediately instead of landing PENDING.
+    await prisma.autoApprovedDomain.upsert({
+      where: { domain: 'school.edu.tw' },
+      create: { domain: 'school.edu.tw' },
+      update: {},
+    });
+  });
+
+  afterEach(async () => {
+    await prisma.account.deleteMany({});
+    await prisma.user.deleteMany({});
+  });
+
+  afterAll(async () => {
+    await prisma.autoApprovedDomain.deleteMany({});
+    await app.close();
+  });
+
+  it('boots successfully and reports googleEnabled: false', () => {
+    return apiRequest(app)
+      .get('/auth/providers')
+      .expect(200)
+      .expect({ googleEnabled: false });
+  });
+
+  it('404s the Google login, callback, and link routes instead of erroring', async () => {
+    await apiRequest(app).get('/auth/google').expect(404);
+    await apiRequest(app).get('/auth/google/callback').expect(404);
+    await apiRequest(app).get('/auth/google/link').expect(404);
+  });
+
+  it('still allows normal password registration and login', async () => {
+    await apiRequest(app)
+      .post('/auth/register')
+      .send({
+        email: 'google-disabled-user@school.edu.tw',
+        name: '無 Google 使用者',
+        password: 'password123',
+      })
+      .expect(201);
+
+    await apiRequest(app)
+      .post('/auth/login')
+      .send({
+        email: 'google-disabled-user@school.edu.tw',
+        password: 'password123',
+      })
+      .expect(201);
   });
 });
