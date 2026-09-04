@@ -21,6 +21,7 @@ vi.mock('../services/auth', () => ({
   updateProfile: vi.fn(),
   getGoogleLinkUrl: vi.fn(),
   changePassword: vi.fn(),
+  getAuthProviders: vi.fn(),
 }));
 vi.mock('../services/bookings', () => ({
   fetchBookings: vi.fn(),
@@ -228,5 +229,52 @@ describe('Layout — nav badges', () => {
 
     const approvalsLink = await screen.findByRole('link', { name: /預約審核/ });
     await waitFor(() => expect(approvalsLink).toHaveTextContent('99+'));
+  });
+});
+
+describe('Layout — Google 帳號連結卡片依 googleEnabled 顯示／隱藏', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(bookingsService.fetchBookings).mockResolvedValue([]);
+    vi.mocked(repairsService.fetchRepairs).mockResolvedValue([]);
+    vi.mocked(repairsService.fetchRepairCategories).mockResolvedValue([]);
+  });
+
+  it('shows the 連結 Google button when googleEnabled is true and the user is not yet linked', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(
+      makeUser({ googleLinked: false }),
+    );
+    vi.mocked(authService.getAuthProviders).mockResolvedValue({ googleEnabled: true });
+    renderLayout();
+
+    await openAccountSettings();
+
+    expect(await screen.findByText('連結 Google')).toBeInTheDocument();
+  });
+
+  it('hides the Google 帳號連結 card entirely when googleEnabled is false and the user is not linked', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(
+      makeUser({ googleLinked: false }),
+    );
+    vi.mocked(authService.getAuthProviders).mockResolvedValue({ googleEnabled: false });
+    renderLayout();
+
+    await openAccountSettings();
+    await waitFor(() => expect(authService.getAuthProviders).toHaveBeenCalled());
+
+    expect(screen.queryByText('Google 帳號連結')).not.toBeInTheDocument();
+    expect(screen.queryByText('連結 Google')).not.toBeInTheDocument();
+  });
+
+  it('still shows the 已連結 badge for an already-linked user even when googleEnabled is false', async () => {
+    vi.mocked(authService.fetchCurrentUser).mockResolvedValue(
+      makeUser({ googleLinked: true }),
+    );
+    vi.mocked(authService.getAuthProviders).mockResolvedValue({ googleEnabled: false });
+    renderLayout();
+
+    await openAccountSettings();
+
+    expect(await screen.findByText('已連結')).toBeInTheDocument();
   });
 });

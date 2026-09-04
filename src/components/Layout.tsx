@@ -41,7 +41,7 @@ const MAX_BADGE_COUNT = 99;
 const badgeText = (count: number) => (count > MAX_BADGE_COUNT ? `${MAX_BADGE_COUNT}+` : String(count));
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, logout, updateProfile } = useAuthData();
+  const { currentUser, logout, updateProfile, googleEnabled } = useAuthData();
   const { bookings } = useBookingsData();
   const { repairs } = useRepairsData();
   const location = useLocation();
@@ -455,29 +455,31 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </Button>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-700">Google 帳號連結</p>
-                    <p className="text-xs text-slate-500 truncate">
-                      {currentUser.googleLinked ? '已連結，Booking 會自動同步到 Google 日曆' : '連結後可自動同步 Booking 到 Google 日曆'}
-                    </p>
+                {(googleEnabled || currentUser.googleLinked) && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700">Google 帳號連結</p>
+                      <p className="text-xs text-slate-500 truncate">
+                        {currentUser.googleLinked ? '已連結，Booking 會自動同步到 Google 日曆' : '連結後可自動同步 Booking 到 Google 日曆'}
+                      </p>
+                    </div>
+                    {currentUser.googleLinked ? (
+                      <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium shrink-0">
+                        <CheckCircle2 size={16} /> 已連結
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="shrink-0 bg-white"
+                        disabled={linkingGoogle}
+                        onClick={handleLinkGoogle}
+                      >
+                        {linkingGoogle ? '連結中…' : '連結 Google'}
+                      </Button>
+                    )}
                   </div>
-                  {currentUser.googleLinked ? (
-                    <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium shrink-0">
-                      <CheckCircle2 size={16} /> 已連結
-                    </span>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 bg-white"
-                      disabled={linkingGoogle}
-                      onClick={handleLinkGoogle}
-                    >
-                      {linkingGoogle ? '連結中…' : '連結 Google'}
-                    </Button>
-                  )}
-                </div>
+                )}
 
                 {currentUser.hasPassword === true && (
                   <div className="rounded-lg border border-slate-200 p-3 space-y-3">

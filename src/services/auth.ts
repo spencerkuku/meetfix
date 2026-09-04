@@ -19,6 +19,26 @@ export function googleLoginUrl(): string {
   return `${API_BASE_URL}/auth/google`;
 }
 
+export interface AuthProviders {
+  googleEnabled: boolean;
+}
+
+// Tells the caller whether Google OAuth is configured for this deployment,
+// so the login screen and account settings can show/hide every
+// Google-login affordance without duplicating the backend's own config
+// check (see docs/adr/0005-optional-google-oauth.md). Fails soft to
+// "disabled" on any error, same as fetchCurrentUser below — a login screen
+// should never break over this.
+export async function getAuthProviders(): Promise<AuthProviders> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/providers`);
+    if (!res.ok) return { googleEnabled: false };
+    return await res.json();
+  } catch {
+    return { googleEnabled: false };
+  }
+}
+
 // Exchanges the one-time code from the /auth/google/callback redirect for a
 // real session token — the JWT itself never appears in a URL this way.
 export async function exchangeLoginCode(code: string): Promise<string | null> {

@@ -5,6 +5,7 @@ import {
   setToken,
   clearToken,
   fetchCurrentUser,
+  getAuthProviders,
   googleLoginUrl,
   exchangeLoginCode,
   registerWithPassword as registerWithPasswordApi,
@@ -15,6 +16,11 @@ import {
 export interface AuthData {
   currentUser: User | null;
   authLoading: boolean;
+  // Whether this deployment has Google OAuth configured (see
+  // docs/adr/0005-optional-google-oauth.md) — fetched once here rather than
+  // separately by every consumer (Login's button, Layout's account-linking
+  // card), so there's one shared answer instead of duplicate requests.
+  googleEnabled: boolean;
   loginWithGoogle: () => void;
   completeGoogleLogin: (code: string) => Promise<void>;
   refreshCurrentUser: () => Promise<void>;
@@ -39,6 +45,7 @@ export const useAuthData = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -51,6 +58,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentUser(user);
       setAuthLoading(false);
     });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const providers = await getAuthProviders();
+        if (!cancelled) setGoogleEnabled(providers.googleEnabled);
+      } catch {
+        // getAuthProviders already fails soft to { googleEnabled: false };
+        // this only guards a test double that isn't set up to resolve.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const loginWithGoogle = () => {
@@ -105,7 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{
-      currentUser, authLoading,
+      currentUser, authLoading, googleEnabled,
       loginWithGoogle, completeGoogleLogin, refreshCurrentUser, registerWithPassword, loginWithPassword, updateProfile, logout,
     }}>
       {children}

@@ -4,11 +4,12 @@ import { useAuthData } from '../state/auth';
 import { UserRole } from '../types';
 import { Button } from '../components/Button';
 import { Footer } from '../components/Footer';
+import { GoogleIcon } from '../components/GoogleIcon';
 import { useToast } from '../components/Toast';
 import { Calendar } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { loginWithGoogle, loginWithPassword, currentUser, authLoading } = useAuthData();
+  const { loginWithGoogle, loginWithPassword, currentUser, authLoading, googleEnabled } = useAuthData();
   const { error } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -44,21 +45,26 @@ export const Login: React.FC = () => {
           <p className="mt-2 text-slate-600">智慧會議預約與報修管理系統</p>
         </div>
 
-        <Button
-          variant="outline"
-          onClick={loginWithGoogle}
-          disabled={authLoading}
-          className="justify-center h-12 text-lg w-full"
-        >
-          使用學校 Google 帳號登入
-        </Button>
-        <p className="text-center text-sm text-slate-400">僅限學校 Google Workspace 帳號可登入</p>
+        {googleEnabled && (
+          <>
+            <Button
+              variant="outline"
+              onClick={loginWithGoogle}
+              disabled={authLoading}
+              className="justify-center h-12 text-lg w-full"
+            >
+              <GoogleIcon />
+              使用學校 Google 帳號登入
+            </Button>
+            <p className="text-center text-sm text-slate-400">僅限學校 Google Workspace 帳號可登入</p>
 
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-slate-400">或</span>
-          <div className="flex-1 h-px bg-gray-200" />
-        </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-gray-200" />
+              <span className="text-xs text-slate-400">或</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+          </>
+        )}
 
         <form onSubmit={handlePasswordLogin} className="space-y-3">
           <input

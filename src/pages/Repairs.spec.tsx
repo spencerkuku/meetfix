@@ -14,6 +14,7 @@ vi.mock('../services/auth', () => ({
   googleLoginUrl: vi.fn(),
   exchangeLoginCode: vi.fn(),
   fetchCurrentUser: vi.fn(),
+  getAuthProviders: vi.fn(),
   registerWithPassword: vi.fn(),
   loginWithPassword: vi.fn(),
   updateProfile: vi.fn(),
